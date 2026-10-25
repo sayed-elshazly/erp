@@ -1440,14 +1440,26 @@ class LocalDatabase {
           const pts = item.consumedPoints || 0;
           if (targetWId && pts > 0) {
             try {
-              JKRWalletEngine.restoreSubWalletPoints(
+              const restored = JKRWalletEngine.restoreSubWalletPoints(
                 targetWId,
                 pts,
                 ticket.ticketNumber || ticket.id,
                 reason,
                 user
               );
-              pointsRestored += pts;
+              if (restored) {
+                pointsRestored += pts;
+              } else {
+                // Fallback to StoreWallet if candidate was a legacy StoreWallet
+                const storeWallets = this.getStoreWallets();
+                const stW = storeWallets.find(w => w.id === targetWId);
+                if (stW && stW.pointsBalance !== undefined) {
+                  stW.pointsBalance = (stW.pointsBalance || 0) + pts;
+                  stW.updatedAt = new Date().toISOString();
+                  this.saveStoreWallet(stW);
+                  pointsRestored += pts;
+                }
+              }
             } catch (e) {
               console.warn('Error restoring sub-wallet points fallback:', e);
             }
@@ -2375,23 +2387,25 @@ class LocalDatabase {
     updatedTicket.referralCommissionProcessed = targetReferral > 0;
 
     // 4. RECONCILE INVENTORY POINTS, FIFO LOTS & MERCHANDISE WALLETS (تعديل ومزامنة شاملة لمحافظ البضاعة والـ FIFO)
-    const prevItem = oldTicket.items?.[0];
-    const newItem = updatedTicket.items?.[0];
-    const prevPoints = prevItem?.consumedPoints || 0;
-    const newPoints = newItem?.consumedPoints || 0;
-    const prevProdId = prevItem?.productId || oldTicket.gameProductName;
-    const newProdId = newItem?.productId || updatedTicket.gameProductName;
-    const prevQty = prevItem?.quantity || 1;
-    const newQty = newItem?.quantity || 1;
-    const prevWallet = prevItem?.consumedWalletId || prevItem?.walletTypeId || oldTicket.actualWalletId;
-    const newWallet = newItem?.consumedWalletId || newItem?.walletTypeId;
+    const prevItems = oldTicket.items || [];
+    const newItems = updatedTicket.items || [];
+    const prevTotalPoints = prevItems.reduce((sum, it) => sum + (it.consumedPoints || ((it.pointsCostPerUnit || 0) * (it.quantity || 1))), 0);
+    const newTotalPoints = newItems.reduce((sum, it) => sum + (it.consumedPoints || ((it.pointsCostPerUnit || 0) * (it.quantity || 1))), 0);
 
-    const inventoryAffected = oldTicket.stockDeducted ||
-      prevPoints !== newPoints ||
-      prevProdId !== newProdId ||
-      prevQty !== newQty ||
-      prevWallet !== newWallet ||
-      updatedTicket.stockDeducted;
+    const itemsInventoryChanged = prevItems.length !== newItems.length ||
+      prevItems.some((prev, idx) => {
+        const next = newItems[idx];
+        if (!next) return true;
+        return prev.productId !== next.productId ||
+          (prev.quantity || 1) !== (next.quantity || 1) ||
+          (prev.consumedPoints || 0) !== (next.consumedPoints || 0) ||
+          (prev.consumedWalletId || prev.walletTypeId) !== (next.consumedWalletId || next.walletTypeId);
+      });
+
+    const inventoryAffected = Boolean(oldTicket.stockDeducted) ||
+      Boolean(updatedTicket.stockDeducted) ||
+      prevTotalPoints !== newTotalPoints ||
+      itemsInventoryChanged;
 
     if (inventoryAffected) {
       // Step A: Fully reverse previous inventory consumption for this ticket
@@ -3218,6 +3232,21 @@ class LocalDatabase {
 
     if (referrer.id === referred.id || referrer.referralCode?.toUpperCase() === referred.referralCode?.toUpperCase() || referrer.phone === referred.phone) {
       return { success: false, message: 'لا يمكن للعميل استخدام كود الإحالة الشخصي الخاص به' };
+    }
+
+    // Circular Referral Protection: Ensure referrer is not already a descendant of referred customer
+    let currentAncestor: Customer | undefined = referrer;
+    const visitedAncestors = new Set<string>([referred.id]);
+    while (currentAncestor && currentAncestor.referredByCode) {
+      const ancCode = currentAncestor.referredByCode.trim().toUpperCase();
+      if (visitedAncestors.has(currentAncestor.id) || ancCode === (referred.referralCode || '').trim().toUpperCase()) {
+        return { success: false, message: 'لا يمكن إنشاء حلقة إحالة دائرية بين العملاء' };
+      }
+      visitedAncestors.add(currentAncestor.id);
+      currentAncestor = allCustomers.find(c => c.referralCode && c.referralCode.trim().toUpperCase() === ancCode);
+      if (currentAncestor && visitedAncestors.has(currentAncestor.id)) {
+        break;
+      }
     }
 
     if (referrer.isFrozen || referrer.status === 'suspended') {
@@ -13363,6 +13392,8 @@ class LocalDatabase {
         }
       }
 
+      const itemPts = (item as any).pointsCostPerUnit ?? (item.consumedPoints && item.quantity ? item.consumedPoints / item.quantity : 0);
+
       const prodToUse: GameProduct = matchedProduct || {
         id: item.productId,
         name: item.productName,
@@ -13370,8 +13401,15 @@ class LocalDatabase {
         gameName: item.gameName,
         primaryWalletId: item.walletTypeId,
         walletTypeId: item.walletTypeId,
-        pointsCostPerUnit: 0
+        pointsCostPerUnit: itemPts || 0
       } as any;
+
+      if (!prodToUse.primaryWalletId && (prodToUse as any).walletSources?.length) {
+        prodToUse.primaryWalletId = (prodToUse as any).walletSources.find((s: any) => s.priority === 1)?.walletId;
+      }
+      if (!prodToUse.pointsCostPerUnit && itemPts > 0) {
+        prodToUse.pointsCostPerUnit = itemPts;
+      }
 
       const requiredQty = item.quantity || 1;
       const pointsPerUnit = prodToUse.pointsCostPerUnit || 0;
@@ -13381,37 +13419,58 @@ class LocalDatabase {
       if (pointsNeeded > 0) {
         const evalResult = JKRWalletEngine.evaluateProductWalletAvailability(prodToUse, requiredQty);
         if (evalResult.selectedWallet) {
-          try {
-            const consumeRes = JKRWalletEngine.consumeSubWalletPoints(
-              ticket.ticketNumber || ticket.id,
-              evalResult.selectedWallet.id,
-              evalResult.pointsNeeded,
-              user,
-              {
-                ticketNumber: ticket.ticketNumber || ticket.id,
-                customerName: ticket.customerName,
-                customerId: ticket.customerId,
-                productName: item.productName || prodToUse.name
+          const jkrWallet = JKRWalletEngine.getWalletById(evalResult.selectedWallet.id);
+          if (jkrWallet) {
+            try {
+              const consumeRes = JKRWalletEngine.consumeSubWalletPoints(
+                ticket.ticketNumber || ticket.id,
+                evalResult.selectedWallet.id,
+                evalResult.pointsNeeded,
+                user,
+                {
+                  ticketNumber: ticket.ticketNumber || ticket.id,
+                  customerName: ticket.customerName,
+                  customerId: ticket.customerId,
+                  productName: item.productName || prodToUse.name
+                }
+              );
+              item.consumedWalletId = evalResult.selectedWallet.id;
+              item.consumedWalletName = evalResult.selectedWallet.name;
+              item.consumedPoints = evalResult.pointsNeeded;
+              item.pointsCostPerUnit = pointsPerUnit;
+              selectedWalletName = evalResult.selectedWallet.name;
+              if (prodToUse.primaryWalletId) {
+                const pWallet = JKRWalletEngine.getWalletById(prodToUse.primaryWalletId);
+                if (pWallet) primaryWalletName = pWallet.name;
               }
-            );
-            item.consumedWalletId = evalResult.selectedWallet.id;
-            item.consumedWalletName = evalResult.selectedWallet.name;
-            item.consumedPoints = evalResult.pointsNeeded;
-            selectedWalletName = evalResult.selectedWallet.name;
-            if (prodToUse.primaryWalletId) {
-              const pWallet = JKRWalletEngine.getWalletById(prodToUse.primaryWalletId);
-              if (pWallet) primaryWalletName = pWallet.name;
-            }
 
-            if (consumeRes && Array.isArray(consumeRes.consumedLots)) {
-              allConsumedLots.push(...consumeRes.consumedLots);
-              totalFIFOCostEGP += (consumeRes.totalCostEGP || 0);
-              totalFIFOCostUSD += (consumeRes.totalCostUSD || 0);
-              totalConsumedPoints += evalResult.pointsNeeded;
+              if (consumeRes && Array.isArray(consumeRes.consumedLots)) {
+                allConsumedLots.push(...consumeRes.consumedLots);
+                totalFIFOCostEGP += (consumeRes.totalCostEGP || 0);
+                totalFIFOCostUSD += (consumeRes.totalCostUSD || 0);
+                totalConsumedPoints += evalResult.pointsNeeded;
+              }
+            } catch (err) {
+              console.error('Failed to consume points from JKR SubWallet:', err);
+              hasConsumptionFailure = true;
             }
-          } catch (err) {
-            console.error('Failed to consume points from JKR SubWallet:', err);
-            hasConsumptionFailure = true;
+          } else {
+            // Evaluated wallet is a StoreWallet
+            const storeWallets = this.getStoreWallets();
+            const chosenWallet = storeWallets.find(w => w.id === evalResult.selectedWallet!.id);
+            if (chosenWallet) {
+              chosenWallet.pointsBalance = Math.max(-99999, (chosenWallet.pointsBalance || 0) - evalResult.pointsNeeded);
+              chosenWallet.updatedAt = new Date().toISOString();
+              this.saveStoreWallet(chosenWallet);
+              item.consumedWalletId = chosenWallet.id;
+              item.consumedWalletName = chosenWallet.name;
+              item.consumedPoints = evalResult.pointsNeeded;
+              item.pointsCostPerUnit = pointsPerUnit;
+              selectedWalletName = chosenWallet.name;
+              totalConsumedPoints += evalResult.pointsNeeded;
+            } else {
+              hasConsumptionFailure = true;
+            }
           }
         } else {
           hasConsumptionFailure = true;
@@ -13423,17 +13482,62 @@ class LocalDatabase {
         const wallets = this.getStoreWallets();
         const candidateWalletIds: string[] = [];
         if (prodToUse.primaryWalletId) candidateWalletIds.push(prodToUse.primaryWalletId);
-        if (prodToUse.walletTypeId && prodToUse.walletTypeId !== 'default') candidateWalletIds.push(prodToUse.walletTypeId);
+        if (Array.isArray(prodToUse.walletSources) && prodToUse.walletSources.length > 0) {
+          const sorted = [...prodToUse.walletSources].sort((a, b) => a.priority - b.priority);
+          sorted.forEach(s => {
+            if (s.walletId && !candidateWalletIds.includes(s.walletId)) candidateWalletIds.push(s.walletId);
+          });
+        }
+        if (prodToUse.alternativeWalletIds && prodToUse.alternativeWalletIds.length > 0) {
+          candidateWalletIds.push(...prodToUse.alternativeWalletIds.filter(id => id && !candidateWalletIds.includes(id)));
+        }
+        if (prodToUse.walletTypeId && prodToUse.walletTypeId !== 'default' && !candidateWalletIds.includes(prodToUse.walletTypeId)) {
+          candidateWalletIds.push(prodToUse.walletTypeId);
+        }
         if (item.walletTypeId && item.walletTypeId !== 'default' && !candidateWalletIds.includes(item.walletTypeId)) {
           candidateWalletIds.push(item.walletTypeId);
         }
 
-        const chosenWallet = wallets.find(w => candidateWalletIds.includes(w.id));
+        const requiredPoints = (prodToUse.pointsCostPerUnit || 0) * requiredQty;
+        const requiredCost = (item.costPrice || 0) * requiredQty;
+        let chosenWallet: any = undefined;
+
+        // Pass 1: Find candidate wallet in priority order with sufficient points / balance
+        for (const cId of candidateWalletIds) {
+          const w = wallets.find(wallet => wallet.id === cId);
+          if (!w || (w as any).isActive === false) continue;
+          if (requiredPoints > 0 && w.pointsBalance !== undefined) {
+            if (w.pointsBalance >= requiredPoints) {
+              chosenWallet = w;
+              break;
+            }
+          } else if (requiredCost > 0) {
+            if ((w.balance || 0) >= requiredCost) {
+              chosenWallet = w;
+              break;
+            }
+          } else {
+            chosenWallet = w;
+            break;
+          }
+        }
+
+        // Pass 2: Fallback to first active candidate wallet if none has full balance
+        if (!chosenWallet) {
+          for (const cId of candidateWalletIds) {
+            const w = wallets.find(wallet => wallet.id === cId);
+            if (w && (w as any).isActive !== false) {
+              chosenWallet = w;
+              break;
+            }
+          }
+        }
+
         if (chosenWallet) {
-          const requiredPoints = (prodToUse.pointsCostPerUnit || 0) * requiredQty;
-          const requiredCost = (item.costPrice || 0) * requiredQty;
           if (chosenWallet.pointsBalance !== undefined && requiredPoints > 0) {
             chosenWallet.pointsBalance = Math.max(-99999, (chosenWallet.pointsBalance || 0) - requiredPoints);
+            item.consumedPoints = requiredPoints;
+            item.pointsCostPerUnit = prodToUse.pointsCostPerUnit || 0;
           } else if (requiredCost > 0) {
             chosenWallet.balance = chosenWallet.balance - requiredCost;
           }

@@ -1708,8 +1708,15 @@ export const CatalogModule: React.FC<CatalogModuleProps> = ({ department = 'cust
     setProdSku(prod.sku);
     setProdDescription(prod.description || '');
     setProdImage(prod.image || '');
-    setProdPrimaryWalletId(prod.primaryWalletId || '');
-    setProdAlternativeWalletIds(prod.alternativeWalletIds || []);
+    const primaryWId = prod.primaryWalletId || (Array.isArray(prod.walletSources) ? prod.walletSources.find(s => s.priority === 1)?.walletId : undefined) || (prod.walletTypeId !== 'default' ? prod.walletTypeId : '');
+    setProdPrimaryWalletId(primaryWId || '');
+
+    const altWIds = Array.isArray(prod.alternativeWalletIds) && prod.alternativeWalletIds.length > 0
+      ? prod.alternativeWalletIds
+      : (Array.isArray(prod.walletSources) && prod.walletSources.length > 0
+          ? prod.walletSources.filter(s => s.priority > 1).sort((a, b) => a.priority - b.priority).map(s => s.walletId)
+          : (Array.isArray(prod.alternativeWallets) ? prod.alternativeWallets.map(a => a.walletId) : []));
+    setProdAlternativeWalletIds(altWIds || []);
     setProdPointsCost(prod.pointsCostPerUnit !== undefined && prod.pointsCostPerUnit !== null ? prod.pointsCostPerUnit : '');
     setProdIsCashbackEnabled(prod.isCashbackEnabled !== false);
     setProdIsReferralEnabled(prod.isReferralEnabled !== false);
@@ -1824,7 +1831,12 @@ export const CatalogModule: React.FC<CatalogModuleProps> = ({ department = 'cust
       image: prodImage.trim() || undefined,
       primaryWalletId: prodPrimaryWalletId || undefined,
       walletTypeId: prodPrimaryWalletId || 'default',
-      alternativeWalletIds: prodAlternativeWalletIds,
+      alternativeWalletIds: prodAlternativeWalletIds.filter(id => id && id !== prodPrimaryWalletId),
+      walletSources: [
+        ...(prodPrimaryWalletId ? [{ walletId: prodPrimaryWalletId, priority: 1 }] : []),
+        ...prodAlternativeWalletIds.filter(id => id && id !== prodPrimaryWalletId).map((id, index) => ({ walletId: id, priority: index + 2 }))
+      ],
+      alternativeWallets: prodAlternativeWalletIds.filter(id => id && id !== prodPrimaryWalletId).map((id, index) => ({ walletId: id, priority: index + 2 })),
       pointsCostPerUnit: typeof prodPointsCost === 'number' ? prodPointsCost : (parseFloat(String(prodPointsCost)) || 0),
       costUSD: resolvedCostUSD,
       costPriceEGP: calculatedCostEGP && calculatedCostEGP > 0 ? calculatedCostEGP : undefined,

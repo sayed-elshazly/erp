@@ -636,41 +636,64 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
       maxQty = Math.min(maxQty, Math.max(0, product.availableQuantity - alreadyAddedQty));
     }
 
-    // 2. Check points wallet limit
+    // 2. Check points wallet limit across primary & alternative wallets
     const pts = product.pointsCostPerUnit || 0;
-    const walletId = product.primaryWalletId || product.walletTypeId;
-    if (pts > 0 && walletId) {
-      let totalWalletPoints = 0;
-      let hasWallet = false;
-      const jkrW = JKRWalletEngine.getWalletById(walletId);
-      if (jkrW) {
-        totalWalletPoints = jkrW.pointsBalance ?? 0;
-        hasWallet = true;
-      } else {
-        const stW = db.getStoreWallets().find(w => w.id === walletId);
-        if (stW && stW.pointsBalance !== undefined) {
-          totalWalletPoints = stW.pointsBalance;
+    if (pts > 0) {
+      const candidateIds: string[] = [];
+      if (product.primaryWalletId && product.primaryWalletId !== 'default') candidateIds.push(product.primaryWalletId);
+      if (Array.isArray(product.walletSources) && product.walletSources.length > 0) {
+        candidateIds.push(...product.walletSources.map(s => s.walletId).filter(id => id && id !== 'default' && !candidateIds.includes(id)));
+      }
+      if (Array.isArray(product.alternativeWalletIds) && product.alternativeWalletIds.length > 0) {
+        candidateIds.push(...product.alternativeWalletIds.filter(id => id && id !== 'default' && !candidateIds.includes(id)));
+      }
+      if (product.walletTypeId && product.walletTypeId !== 'default' && !candidateIds.includes(product.walletTypeId)) {
+        candidateIds.push(product.walletTypeId);
+      }
+
+      let bestPointsQty = 0;
+      let evaluatedAny = false;
+
+      for (const wId of candidateIds) {
+        let totalWalletPoints = 0;
+        let hasWallet = false;
+        const jkrW = JKRWalletEngine.getWalletById(wId);
+        if (jkrW && jkrW.isActive && jkrW.status !== 'DISABLED' && jkrW.status !== 'FROZEN') {
+          totalWalletPoints = jkrW.pointsBalance ?? 0;
           hasWallet = true;
+        } else {
+          const stW = db.getStoreWallets().find(w => w.id === wId);
+          if (stW && stW.pointsBalance !== undefined) {
+            totalWalletPoints = stW.pointsBalance;
+            hasWallet = true;
+          }
+        }
+
+        if (hasWallet) {
+          evaluatedAny = true;
+          // Calculate points already committed by other items in the ticket that use this wallet
+          const pointsCommitted = ticketItems.reduce((sum, itm) => {
+            if (excludeItemId && itm.id === excludeItemId) return sum;
+            const itmWId = itm.consumedWalletId || itm.walletTypeId;
+            const itmProd = games.flatMap(g => g.products || []).find(p => p.id === itm.productId);
+            const targetWId = itmWId || itmProd?.primaryWalletId || itmProd?.walletTypeId;
+            if (targetWId === wId) {
+              const itemPts = itmProd?.pointsCostPerUnit || (itm.consumedPoints && itm.quantity ? itm.consumedPoints / itm.quantity : 0);
+              return sum + (itemPts * (itm.quantity || 1));
+            }
+            return sum;
+          }, 0);
+
+          const remainingPoints = Math.max(0, totalWalletPoints - pointsCommitted);
+          const maxPointsQty = Math.floor(remainingPoints / pts);
+          if (maxPointsQty > bestPointsQty) {
+            bestPointsQty = maxPointsQty;
+          }
         }
       }
 
-      if (hasWallet) {
-        // Calculate points already committed by other items in the ticket that use this wallet
-        const pointsCommitted = ticketItems.reduce((sum, itm) => {
-          if (excludeItemId && itm.id === excludeItemId) return sum;
-          const itmWId = itm.consumedWalletId || itm.walletTypeId;
-          const itmProd = games.flatMap(g => g.products || []).find(p => p.id === itm.productId);
-          const targetWId = itmWId || itmProd?.primaryWalletId || itmProd?.walletTypeId;
-          if (targetWId === walletId) {
-            const itemPts = itmProd?.pointsCostPerUnit || (itm.consumedPoints && itm.quantity ? itm.consumedPoints / itm.quantity : 0);
-            return sum + (itemPts * (itm.quantity || 1));
-          }
-          return sum;
-        }, 0);
-
-        const remainingPoints = Math.max(0, totalWalletPoints - pointsCommitted);
-        const maxPointsQty = Math.floor(remainingPoints / pts);
-        maxQty = Math.min(maxQty, maxPointsQty);
+      if (evaluatedAny) {
+        maxQty = Math.min(maxQty, bestPointsQty);
       }
     }
 
@@ -683,56 +706,73 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
       return { hasPointsWallet: false, isInsufficient: false, pointsNeeded: 0, availablePoints: 0, pointsPerUnit: 0, maxAddableQty: 999999 };
     }
     const pts = currentSelectedProduct.pointsCostPerUnit || 0;
-    const walletId = currentSelectedProduct.primaryWalletId || currentSelectedProduct.walletTypeId;
     const maxAddableQty = getProductMaxQuantity(currentSelectedProduct);
-
-    if (pts <= 0 || !walletId) {
-      return { hasPointsWallet: false, isInsufficient: maxAddableQty <= 0, pointsNeeded: 0, availablePoints: 0, pointsPerUnit: 0, maxAddableQty };
-    }
-
-    let totalWalletPoints = 0;
-    let hasPointsWallet = false;
-
-    const jkrW = JKRWalletEngine.getWalletById(walletId);
-    if (jkrW) {
-      totalWalletPoints = jkrW.pointsBalance ?? 0;
-      hasPointsWallet = true;
-    } else {
-      const stW = db.getStoreWallets().find(w => w.id === walletId);
-      if (stW && stW.pointsBalance !== undefined) {
-        totalWalletPoints = stW.pointsBalance;
-        hasPointsWallet = true;
-      }
-    }
-
-    if (!hasPointsWallet) {
-      return { hasPointsWallet: false, isInsufficient: maxAddableQty <= 0, pointsNeeded: 0, availablePoints: 0, pointsPerUnit: 0, maxAddableQty };
-    }
-
-    // Points already committed by items in ticketItems using this wallet
-    const pointsCommitted = ticketItems.reduce((sum, itm) => {
-      const itmWId = itm.consumedWalletId || itm.walletTypeId;
-      const itmProd = games.flatMap(g => g.products || []).find(p => p.id === itm.productId);
-      const targetWId = itmWId || itmProd?.primaryWalletId || itmProd?.walletTypeId;
-      if (targetWId === walletId) {
-        const itemPts = itmProd?.pointsCostPerUnit || (itm.consumedPoints && itm.quantity ? itm.consumedPoints / itm.quantity : 0);
-        return sum + (itemPts * (itm.quantity || 1));
-      }
-      return sum;
-    }, 0);
-
-    const availablePoints = Math.max(0, totalWalletPoints - pointsCommitted);
     const qty = Math.max(1, lineQuantity);
     const pointsNeeded = pts * qty;
-    const isInsufficient = pointsNeeded > availablePoints || maxAddableQty < qty;
+
+    if (pts <= 0) {
+      return { hasPointsWallet: false, isInsufficient: maxAddableQty <= 0, pointsNeeded: 0, availablePoints: 0, pointsPerUnit: 0, maxAddableQty };
+    }
+
+    // Try smart priority cascade
+    const evalResult = JKRWalletEngine.evaluateProductWalletAvailability(currentSelectedProduct, qty);
+    if (evalResult.selectedWallet) {
+      const wId = evalResult.selectedWallet.id;
+      const pointsCommitted = ticketItems.reduce((sum, itm) => {
+        const itmWId = itm.consumedWalletId || itm.walletTypeId;
+        const itmProd = games.flatMap(g => g.products || []).find(p => p.id === itm.productId);
+        const targetWId = itmWId || itmProd?.primaryWalletId || itmProd?.walletTypeId;
+        if (targetWId === wId) {
+          const itemPts = itmProd?.pointsCostPerUnit || (itm.consumedPoints && itm.quantity ? itm.consumedPoints / itm.quantity : 0);
+          return sum + (itemPts * (itm.quantity || 1));
+        }
+        return sum;
+      }, 0);
+
+      const availablePoints = Math.max(0, (evalResult.selectedWallet.pointsBalance ?? 0) - pointsCommitted);
+      const isInsufficient = pointsNeeded > availablePoints || maxAddableQty < qty;
+      return {
+        hasPointsWallet: true,
+        isInsufficient,
+        pointsNeeded,
+        availablePoints,
+        pointsPerUnit: pts,
+        maxAddableQty
+      };
+    }
+
+    // Fallback store wallet check
+    const fallbackWId = currentSelectedProduct.primaryWalletId || currentSelectedProduct.walletTypeId;
+    const stW = fallbackWId ? db.getStoreWallets().find(w => w.id === fallbackWId) : null;
+    if (stW && stW.pointsBalance !== undefined) {
+      const pointsCommitted = ticketItems.reduce((sum, itm) => {
+        const itmWId = itm.consumedWalletId || itm.walletTypeId;
+        const itmProd = games.flatMap(g => g.products || []).find(p => p.id === itm.productId);
+        const targetWId = itmWId || itmProd?.primaryWalletId || itmProd?.walletTypeId;
+        if (targetWId === stW.id) {
+          const itemPts = itmProd?.pointsCostPerUnit || (itm.consumedPoints && itm.quantity ? itm.consumedPoints / itm.quantity : 0);
+          return sum + (itemPts * (itm.quantity || 1));
+        }
+        return sum;
+      }, 0);
+      const availablePoints = Math.max(0, stW.pointsBalance - pointsCommitted);
+      return {
+        hasPointsWallet: true,
+        isInsufficient: pointsNeeded > availablePoints || maxAddableQty < qty,
+        pointsNeeded,
+        availablePoints,
+        pointsPerUnit: pts,
+        maxAddableQty
+      };
+    }
 
     return {
-      hasPointsWallet,
-      isInsufficient,
+      hasPointsWallet: false,
+      isInsufficient: true,
       pointsNeeded,
-      availablePoints,
+      availablePoints: 0,
       pointsPerUnit: pts,
-      maxAddableQty
+      maxAddableQty: 0
     };
   }, [currentSelectedProduct, lineQuantity, ticketItems, games, getProductMaxQuantity]);
 
@@ -1619,7 +1659,9 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
       referralPercent: effectiveRefRate,
       referralAmountEGP: itemReferralAmount,
       netProfitEGP: itemNetProfit,
-      walletTypeId: p.primaryWalletId || p.walletTypeId
+      walletTypeId: p.primaryWalletId || p.walletTypeId,
+      pointsCostPerUnit: p.pointsCostPerUnit || 0,
+      consumedPoints: (p.pointsCostPerUnit || 0) * qty
     };
 
     setTicketItems([...ticketItems, newItem]);
@@ -1973,26 +2015,10 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
           // Strict Points Sufficiency Check Across Product Wallets (Requirement #9)
           const pts = prod.pointsCostPerUnit || 0;
           const requiredUnits = itm.quantity || 1;
-          const pointsNeeded = pts * requiredUnits;
           if (pts > 0) {
-            const wId = prod.primaryWalletId || prod.walletTypeId;
-            let currentPointsBalance = 0;
-            let hasWallet = false;
-            if (wId) {
-              const jkrW = JKRWalletEngine.getWalletById(wId);
-              if (jkrW) {
-                currentPointsBalance = jkrW.pointsBalance ?? 0;
-                hasWallet = true;
-              } else {
-                const stW = db.getStoreWallets().find(w => w.id === wId);
-                if (stW && stW.pointsBalance !== undefined) {
-                  currentPointsBalance = stW.pointsBalance;
-                  hasWallet = true;
-                }
-              }
-            }
-            if (hasWallet && pointsNeeded > currentPointsBalance) {
-              showToast('error', 'الرصيد غير كافٍ', 'الرصيد الحالي في المحفظة غير كافٍ لإتمام هذه العملية.');
+            const evalResult = JKRWalletEngine.evaluateProductWalletAvailability(prod, requiredUnits);
+            if (!evalResult.isAvailable) {
+              showToast('error', 'الرصيد غير كافٍ', evalResult.reason || 'الرصيد الحالي في المحافظ المرتبطة بالمنتج غير كافٍ لإتمام هذه العملية.');
               return;
             }
           }
@@ -2038,29 +2064,15 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
         const g = games.find(game => game.id === itm.gameId);
         const p = g?.products?.find(prod => prod.id === itm.productId) || games.flatMap(gm => gm.products || []).find(prod => prod.id === itm.productId);
         const pts = p?.pointsCostPerUnit || 0;
-        const wId = itm.walletTypeId || p?.primaryWalletId || p?.walletTypeId;
-        if (pts > 0 && wId) {
+        if (pts > 0) {
           const qty = itm.quantity || 1;
           const needed = pts * qty;
-          let avail = 0;
-          let hasWallet = false;
-          const jkrW = JKRWalletEngine.getWalletById(wId);
-          if (jkrW) {
-            avail = jkrW.pointsBalance ?? 0;
-            hasWallet = true;
-          } else {
-            const stW = db.getStoreWallets().find(w => w.id === wId);
-            if (stW && stW.pointsBalance !== undefined) {
-              avail = stW.pointsBalance;
-              hasWallet = true;
-            }
-          }
-
-          if (hasWallet && needed > avail) {
+          const evalResult = p ? JKRWalletEngine.evaluateProductWalletAvailability(p, qty) : { isAvailable: false, selectedWallet: null, reason: undefined };
+          if (!evalResult.isAvailable) {
             showToast(
               'error',
               'لا يمكن تنفيذ العملية',
-              `رصيد المحفظة غير كافٍ للباقة "${itm.productName}".\nالمتاح: ${avail.toLocaleString()} نقطة\nالمطلوب: ${needed.toLocaleString()} نقطة.`
+              evalResult.reason || `رصيد المحافظ المرتبطة غير كافٍ للباقة "${itm.productName}".\nالمطلوب: ${needed.toLocaleString()} نقطة.`
             );
             return;
           }

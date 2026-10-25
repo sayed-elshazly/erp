@@ -1439,16 +1439,24 @@ export class JKRWalletEngine {
     if (product.primaryWalletId && product.primaryWalletId !== 'default') {
       candidateWalletIds.push(product.primaryWalletId);
     }
+    if (Array.isArray(product.walletSources) && product.walletSources.length > 0) {
+      const sortedSources = [...product.walletSources].sort((a, b) => a.priority - b.priority);
+      sortedSources.forEach(s => {
+        if (s.walletId && s.walletId !== 'default' && !candidateWalletIds.includes(s.walletId)) {
+          candidateWalletIds.push(s.walletId);
+        }
+      });
+    }
     if (product.walletTypeId && product.walletTypeId !== 'default' && !candidateWalletIds.includes(product.walletTypeId)) {
       candidateWalletIds.push(product.walletTypeId);
     }
     if (product.alternativeWalletIds && product.alternativeWalletIds.length > 0) {
-      candidateWalletIds.push(...product.alternativeWalletIds.filter(id => id && !candidateWalletIds.includes(id)));
+      candidateWalletIds.push(...product.alternativeWalletIds.filter(id => id && id !== 'default' && !candidateWalletIds.includes(id)));
     }
     if (product.alternativeWallets && product.alternativeWallets.length > 0) {
       const sortedAlts = [...product.alternativeWallets].sort((a, b) => a.priority - b.priority);
       sortedAlts.forEach(alt => {
-        if (alt.walletId && !candidateWalletIds.includes(alt.walletId)) {
+        if (alt.walletId && alt.walletId !== 'default' && !candidateWalletIds.includes(alt.walletId)) {
           candidateWalletIds.push(alt.walletId);
         }
       });
@@ -1470,7 +1478,24 @@ export class JKRWalletEngine {
 
     // Check each candidate wallet in priority order
     for (const walletId of candidateWalletIds) {
-      const wallet = this.getWalletById(walletId);
+      let wallet = this.getWalletById(walletId);
+      if (!wallet) {
+        // Fallback: check if candidate is a StoreWallet with pointsBalance
+        const rawStoreWallets = this.getStoredData<any>('nzm_jkr_store_wallets', []);
+        const stW = rawStoreWallets.find((w: any) => w.id === walletId);
+        if (stW && (stW.pointsBalance !== undefined || stW.type === 'points')) {
+          wallet = {
+            id: stW.id,
+            name: stW.name,
+            type: 'SUB',
+            pointsBalance: stW.pointsBalance ?? 0,
+            safetyLimit: 0,
+            isActive: stW.isActive !== false,
+            status: stW.isActive === false ? 'DISABLED' : 'ACTIVE',
+            createdAt: stW.createdAt || new Date().toISOString()
+          } as any;
+        }
+      }
       if (!wallet) continue;
 
       // 1. Check if disabled or frozen

@@ -129,6 +129,19 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     if (customerToEdit && referrer.id === customerToEdit.id) {
       return { valid: false, message: '❌ لا يمكن استخدام كود الإحالة الشخصي لنفس الحساب' };
     }
+    if (customerToEdit) {
+      let curr: any = referrer;
+      const visited = new Set<string>([customerToEdit.id]);
+      while (curr && curr.referredByCode) {
+        const ancCode = curr.referredByCode.trim().toUpperCase();
+        if (visited.has(curr.id) || ancCode === (customerToEdit.referralCode || '').trim().toUpperCase()) {
+          return { valid: false, message: '❌ لا يمكن إنشاء حلقة إحالة دائرية بين العملاء' };
+        }
+        visited.add(curr.id);
+        curr = allCustomers.find(c => c.referralCode && c.referralCode.trim().toUpperCase() === ancCode);
+        if (curr && visited.has(curr.id)) break;
+      }
+    }
     if (referrer.isFrozen || referrer.status === 'suspended') {
       return { valid: false, message: '⚠️ كود الإحالة يخص حساب شريك/عميل مجمد أو موقوف' };
     }

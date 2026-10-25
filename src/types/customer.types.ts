@@ -154,6 +154,7 @@ export interface TicketItem {
   consumedWalletId?: string; // المحفظة التي تم الخصم منها
   consumedWalletName?: string;
   consumedPoints?: number; // عدد النقاط المستهلكة
+  pointsCostPerUnit?: number; // تكلفة الوحدة بالنقاط
 }
 
 export interface TicketNoteItem {

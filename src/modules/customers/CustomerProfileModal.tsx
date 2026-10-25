@@ -69,6 +69,7 @@ import {
   ExternalLink,
   Copy,
   Check,
+  GitBranch,
   CalendarDays,
   RotateCcw,
   ShoppingBag,
@@ -95,6 +96,8 @@ import { BalanceWithdrawal } from '../../types/finance.types';
 import { NewWithdrawalTicketModal } from '../../components/finance/NewWithdrawalTicketModal';
 import { WithdrawalInvoiceModal } from '../../components/finance/WithdrawalInvoiceModal';
 import { CustomerCashbackTransferModal } from './CustomerCashbackTransferModal';
+import { CustomerReferralTransferModal } from './CustomerReferralTransferModal';
+import { CustomerReferralNetwork } from './CustomerReferralNetwork';
 
 interface CustomerProfileModalProps {
   isOpen: boolean;
@@ -125,6 +128,8 @@ const CustomerProfileModalContent: React.FC<CustomerProfileModalContentProps> = 
   const [isStatementReportOpen, setIsStatementReportOpen] = useState(false);
   const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
   const [isCashbackTransferModalOpen, setIsCashbackTransferModalOpen] = useState(false);
+  const [isReferralTransferModalOpen, setIsReferralTransferModalOpen] = useState(false);
+  const [referralSubView, setReferralSubView] = useState<'cards' | 'tree' | 'vouchers'>('cards');
   const [selectedWithdrawalForInvoice, setSelectedWithdrawalForInvoice] = useState<BalanceWithdrawal | null>(null);
 
   // Unified Wallet Filter & Date States (Requirement #5)
@@ -2833,11 +2838,38 @@ NZM JKR Top Up 🌟`;
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
-                <div className="text-left font-mono">
-                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block">رصيد عمولات الإحالة الحالي:</span>
-                  <strong className="text-base text-emerald-500 font-black font-mono">
-                    {formatCurrency(currentCust.referralWalletBalance || 0)}
-                  </strong>
+                <div className="flex items-center gap-2">
+                  <div className="text-left font-mono">
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block">رصيد عمولات الإحالة الحالي:</span>
+                    <strong className="text-base text-purple-400 font-black font-mono">
+                      {formatCurrency(currentCust.referralWalletBalance || 0)}
+                    </strong>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsReferralTransferModalOpen(true)}
+                      disabled={(currentCust.referralWalletBalance || 0) <= 0}
+                      className="text-xs border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-600 hover:text-white"
+                      title="تحويل رصيد الإحالة إلى الرصيد الأساسي للشحن"
+                    >
+                      🔄 تحويل للرصيد
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsWithdrawalModalOpen(true)}
+                      disabled={(currentCust.referralWalletBalance || 0) <= 0}
+                      className="text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-600 hover:text-white"
+                      title="طلب صرف نقدية من رصيد الإحالة"
+                    >
+                      💸 صرف نقدية
+                    </Button>
+                  </div>
                 </div>
 
                 {isOwner && isPartnerType && (
@@ -2876,6 +2908,217 @@ NZM JKR Top Up 🌟`;
                 )}
               </div>
             </div>
+
+            {/* View Mode Switcher */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-gray-100 dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A]">
+                <button
+                  type="button"
+                  onClick={() => setReferralSubView('cards')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                    referralSubView === 'cards'
+                      ? 'bg-white dark:bg-zinc-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>بطاقات الإحالة (الجدد والقدامى)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReferralSubView('tree')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                    referralSubView === 'tree'
+                      ? 'bg-white dark:bg-zinc-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <GitBranch className="w-3.5 h-3.5" />
+                  <span>شجرة الإحالة التفاعلية والشبكة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReferralSubView('vouchers')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                    referralSubView === 'vouchers'
+                      ? 'bg-white dark:bg-zinc-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>سندات التحويل وسجل الحركات</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsReferralTransferModalOpen(true)}
+                  disabled={(currentCust.referralWalletBalance || 0) <= 0}
+                  icon={<Receipt className="w-3.5 h-3.5" />}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold"
+                >
+                  إصدار سند تحويل رسمي
+                </Button>
+              </div>
+            </div>
+
+            {/* Sub-view: Tree */}
+            {referralSubView === 'tree' && (
+              <CustomerReferralNetwork
+                currentCustomer={currentCust}
+                allCustomers={allDbCustomers}
+                allTickets={allDbTickets}
+                walletTransactions={walletTransactions}
+                onOpenCustomer={handleOpenRefereeProfile}
+                onUnlinkReferee={setRefereeToUnlink}
+                onOpenTransferModal={() => setIsReferralTransferModalOpen(true)}
+                onOpenWithdrawalModal={() => setIsWithdrawalModalOpen(true)}
+                isOwner={isOwner}
+              />
+            )}
+
+            {/* Sub-view: Vouchers & Ledger */}
+            {referralSubView === 'vouchers' && (
+              <div className="space-y-4">
+                {/* Vouchers Summary Banner */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] space-y-1">
+                    <span className="text-[11px] text-zinc-400 font-bold block">إجمالي العمولات المكتسبة</span>
+                    <strong className="text-lg font-black text-emerald-500 font-mono block">
+                      +{formatCurrency(currentCust.totalReferralCommissionEarned || referralTabKPIs.totalCommissionEarned)}
+                    </strong>
+                    <span className="text-[10px] text-zinc-500 block">من كافة التذاكر والطلبات</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] space-y-1">
+                    <span className="text-[11px] text-zinc-400 font-bold block">إجمالي المحول للرصيد الدائن</span>
+                    <strong className="text-lg font-black text-purple-400 font-mono block">
+                      {formatCurrency(
+                        walletTransactions
+                          .filter(w => w.customerId === currentCust.id && w.walletType === 'referral' && w.type === 'redeemed' && !w.operationName.includes('سحب'))
+                          .reduce((sum, w) => sum + w.amount, 0)
+                      )}
+                    </strong>
+                    <span className="text-[10px] text-zinc-500 block">سندات استبدال وتحويل CBT/RFT</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] space-y-1">
+                    <span className="text-[11px] text-zinc-400 font-bold block">إجمالي المسحوب نقدياً</span>
+                    <strong className="text-lg font-black text-amber-500 font-mono block">
+                      {formatCurrency(
+                        walletTransactions
+                          .filter(w => w.customerId === currentCust.id && w.walletType === 'referral' && ((w.type === 'redeemed' && w.operationName.includes('سحب')) || (w.type === 'adjustment' && (w.operationName.includes('سحب') || w.amount < 0))))
+                          .reduce((sum, w) => sum + Math.abs(w.amount), 0)
+                      )}
+                    </strong>
+                    <span className="text-[10px] text-zinc-500 block">سندات صرف كاش / محافظ نقدية</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-purple-500/30 bg-purple-500/5 space-y-1">
+                    <span className="text-[11px] text-purple-600 dark:text-purple-400 font-bold block">الرصيد المتاح حالياً</span>
+                    <strong className="text-lg font-black text-purple-500 font-mono block">
+                      {formatCurrency(currentCust.referralWalletBalance || 0)}
+                    </strong>
+                    <span className="text-[10px] text-zinc-500 block">جاهز للتحويل أو الصرف الفوري</span>
+                  </div>
+                </div>
+
+                {/* Vouchers & Transactions Table */}
+                <div className="p-4 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-[#27272A]">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-purple-500" />
+                      <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                        سجل سندات وحركات محفظة الإحالة
+                      </h4>
+                    </div>
+                    <span className="text-[11px] text-zinc-400">
+                      {walletTransactions.filter(w => w.customerId === currentCust.id && w.walletType === 'referral').length} حركة مسجلة
+                    </span>
+                  </div>
+
+                  {walletTransactions.filter(w => w.customerId === currentCust.id && w.walletType === 'referral').length === 0 ? (
+                    <div className="p-8 text-center text-zinc-400 space-y-2">
+                      <Receipt className="w-8 h-8 mx-auto opacity-40" />
+                      <p className="font-bold text-xs">لا توجد حركات أو سندات مسجلة لمحفظة الإحالة حتى الآن</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-right text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-100 dark:border-[#27272A] text-zinc-400 text-[11px]">
+                            <th className="py-2 px-3 font-semibold">التاريخ والوقت</th>
+                            <th className="py-2 px-3 font-semibold">نوع السند / الحركة</th>
+                            <th className="py-2 px-3 font-semibold">البيان والتفاصيل</th>
+                            <th className="py-2 px-3 font-semibold">المبلغ</th>
+                            <th className="py-2 px-3 font-semibold">الرصيد بعدها</th>
+                            <th className="py-2 px-3 font-semibold text-center">إجراء</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-[#27272A]">
+                          {walletTransactions
+                            .filter(w => w.customerId === currentCust.id && w.walletType === 'referral')
+                            .map(tx => (
+                              <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-[#141417] transition-colors">
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-zinc-500">
+                                  {formatDate(tx.createdAt)}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <Badge
+                                    variant={
+                                      tx.type === 'commission'
+                                        ? 'success'
+                                        : tx.operationName.includes('سحب') || tx.type === 'adjustment'
+                                        ? 'warning'
+                                        : 'info'
+                                    }
+                                    size="sm"
+                                  >
+                                    {tx.type === 'commission'
+                                      ? 'عمولة إحالة 💰'
+                                      : tx.operationName.includes('سحب') || tx.type === 'adjustment'
+                                      ? 'سند صرف نقدية 💸'
+                                      : 'سند تحويل رصيد 🔁'}
+                                  </Badge>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <span className="font-bold text-zinc-900 dark:text-zinc-100 block">{tx.operationName}</span>
+                                  {tx.notes && <span className="text-[10px] text-zinc-400 block">{tx.notes}</span>}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold">
+                                  <span className={tx.type === 'commission' ? 'text-emerald-500' : 'text-purple-400'}>
+                                    {tx.type === 'commission' ? '+' : '-'}{formatCurrency(Math.abs(tx.amount))}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-zinc-600 dark:text-zinc-400">
+                                  {formatCurrency(tx.balanceAfter)}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => window.print()}
+                                    className="p-1 rounded text-zinc-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors cursor-pointer"
+                                    title="طباعة السند"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-view: Cards View */}
+            {referralSubView === 'cards' && (
+              <>
 
             {/* 🌟 Referral Profile Card (Regular Customer vs Partners) */}
             {!isPartnerType ? (
@@ -3528,6 +3771,8 @@ NZM JKR Top Up 🌟`;
                 </div>
               )}
             </div>
+            </>
+          )}
           </div>
         )}
 
@@ -4639,6 +4884,21 @@ NZM JKR Top Up 🌟`;
         <CustomerCashbackTransferModal
           isOpen={isCashbackTransferModalOpen}
           onClose={() => setIsCashbackTransferModalOpen(false)}
+          customer={currentCust}
+          partyType="customer"
+          onSuccess={() => {
+            setRefreshTrigger(prev => prev + 1);
+            loadCustomerDetails();
+            onCustomerUpdated();
+          }}
+        />
+      )}
+
+      {/* Official Referral Transfer Modal */}
+      {isReferralTransferModalOpen && (
+        <CustomerReferralTransferModal
+          isOpen={isReferralTransferModalOpen}
+          onClose={() => setIsReferralTransferModalOpen(false)}
           customer={currentCust}
           partyType="customer"
           onSuccess={() => {

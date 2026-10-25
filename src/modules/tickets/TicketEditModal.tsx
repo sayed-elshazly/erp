@@ -183,24 +183,53 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
   // 3. Live Points Sufficiency Validation
   const pointsValidation = useMemo(() => {
     if (!selectedProduct) {
-      return { isInsufficient: false, pointsNeeded: 0, availablePoints: 0, walletName: '', hasPointsCost: false };
+      return { isInsufficient: false, pointsNeeded: 0, availablePoints: 0, walletName: '', walletId: '', hasPointsCost: false };
     }
     const pts = selectedProduct.pointsCostPerUnit || 0;
     const needed = pts * (quantity || 1);
     if (pts <= 0) {
-      return { isInsufficient: false, pointsNeeded: 0, availablePoints: 0, walletName: '', hasPointsCost: false };
+      return { isInsufficient: false, pointsNeeded: 0, availablePoints: 0, walletName: '', walletId: '', hasPointsCost: false };
     }
 
-    // If ticket has already deducted stock for this exact wallet, credit back old points for check
+    // Try evaluation across candidate wallets (primary -> walletSources -> alternativeWalletIds)
+    const evalResult = JKRWalletEngine.evaluateProductWalletAvailability(selectedProduct, quantity || 1);
+
+    // If ticket has already deducted stock for this exact product, credit back old points for check
     const prevConsumedPoints = (ticket?.stockDeducted && ticket?.items?.[0]?.productId === selectedProduct.id)
       ? (ticket?.items?.[0]?.consumedPoints || 0)
       : 0;
 
-    const wId = selectedProduct.primaryWalletId || selectedProduct.walletTypeId;
-    let avail = 0;
-    let wName = '';
+    if (evalResult.isAvailable && evalResult.selectedWallet) {
+      return {
+        isInsufficient: false,
+        pointsNeeded: needed,
+        availablePoints: (evalResult.selectedWallet.pointsBalance ?? 0) + prevConsumedPoints,
+        walletName: evalResult.selectedWallet.name,
+        walletId: evalResult.selectedWallet.id,
+        hasPointsCost: true
+      };
+    }
 
-    if (wId) {
+    // Candidate wallets fallback check with credit back of prevConsumedPoints
+    const candidateWalletIds: string[] = [];
+    if (selectedProduct.primaryWalletId && selectedProduct.primaryWalletId !== 'default') {
+      candidateWalletIds.push(selectedProduct.primaryWalletId);
+    }
+    if (Array.isArray(selectedProduct.walletSources)) {
+      [...selectedProduct.walletSources].sort((a, b) => a.priority - b.priority).forEach(s => {
+        if (s.walletId && !candidateWalletIds.includes(s.walletId)) candidateWalletIds.push(s.walletId);
+      });
+    }
+    if (selectedProduct.alternativeWalletIds) {
+      candidateWalletIds.push(...selectedProduct.alternativeWalletIds.filter(id => id && !candidateWalletIds.includes(id)));
+    }
+    if (selectedProduct.walletTypeId && selectedProduct.walletTypeId !== 'default' && !candidateWalletIds.includes(selectedProduct.walletTypeId)) {
+      candidateWalletIds.push(selectedProduct.walletTypeId);
+    }
+
+    for (const wId of candidateWalletIds) {
+      let avail = 0;
+      let wName = '';
       const jkrW = JKRWalletEngine.getWalletById(wId);
       if (jkrW) {
         avail = (jkrW.pointsBalance ?? 0) + prevConsumedPoints;
@@ -212,13 +241,32 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
           wName = stW.name;
         }
       }
+
+      if (avail >= needed) {
+        return {
+          isInsufficient: false,
+          pointsNeeded: needed,
+          availablePoints: avail,
+          walletName: wName,
+          walletId: wId,
+          hasPointsCost: true
+        };
+      }
     }
 
+    // If completely insufficient across all candidate wallets:
+    const primaryWId = candidateWalletIds[0] || selectedProduct.primaryWalletId || selectedProduct.walletTypeId;
+    const jkrW = primaryWId ? JKRWalletEngine.getWalletById(primaryWId) : null;
+    const stW = primaryWId ? wallets.find(w => w.id === primaryWId) : null;
+    const avail = (jkrW?.pointsBalance ?? stW?.pointsBalance ?? 0) + prevConsumedPoints;
+    const wName = jkrW?.name || stW?.name || '';
+
     return {
-      isInsufficient: needed > avail,
+      isInsufficient: true,
       pointsNeeded: needed,
       availablePoints: avail,
       walletName: wName,
+      walletId: primaryWId || '',
       hasPointsCost: true
     };
   }, [selectedProduct, quantity, ticket, wallets]);
@@ -233,10 +281,10 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
     // FIFO Cost
     let fifoCost = 0;
     if (selectedProduct) {
-      const wId = selectedProduct.primaryWalletId || selectedProduct.walletTypeId;
+      const targetWId = pointsValidation.walletId || selectedProduct.primaryWalletId || selectedProduct.walletTypeId;
       const pts = (selectedProduct.pointsCostPerUnit || 0) * (quantity || 1);
-      if (wId && pts > 0) {
-        const costRes = JKRWalletEngine.getWalletEffectivePointCost(wId, pts);
+      if (targetWId && pts > 0) {
+        const costRes = JKRWalletEngine.getWalletEffectivePointCost(targetWId, pts);
         fifoCost = Math.round(costRes.totalCostEGP * 100) / 100;
       } else {
         const unitCost = selectedProduct.costPriceEGP || ((selectedProduct.costUSD || 0) * 50);
@@ -498,10 +546,11 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
       referralPercent: calculations.refPercent,
       referralAmountEGP: calculations.referral,
       netProfitEGP: calculations.netProfit,
-      walletTypeId: selectedProduct?.primaryWalletId || selectedProduct?.walletTypeId,
-      consumedWalletId: selectedProduct?.primaryWalletId || selectedProduct?.walletTypeId,
-      consumedWalletName: pointsValidation.walletName,
-      consumedPoints: (selectedProduct?.pointsCostPerUnit || 0) * quantity
+      walletTypeId: pointsValidation.walletId || selectedProduct?.primaryWalletId || selectedProduct?.walletTypeId,
+      consumedWalletId: pointsValidation.walletId || prevItem?.consumedWalletId || selectedProduct?.primaryWalletId || selectedProduct?.walletTypeId,
+      consumedWalletName: pointsValidation.walletName || prevItem?.consumedWalletName,
+      consumedPoints: (selectedProduct?.pointsCostPerUnit || 0) * quantity,
+      pointsCostPerUnit: selectedProduct?.pointsCostPerUnit || 0
     };
 
     // Calculate overpayment/shortage

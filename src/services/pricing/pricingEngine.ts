@@ -451,10 +451,13 @@ export class PricingEngine {
           (game.products || []).forEach(prod => {
             let effectiveCostUSD = prod.costUSD || 0;
             const pts = prod.pointsCostPerUnit || 0;
-            const walletId = prod.primaryWalletId || prod.walletTypeId;
-            if (effectiveCostUSD <= 0 && walletId && pts > 0) {
-              const fifo = JKRWalletEngine.getWalletEffectivePointCost(walletId, pts);
-              if (fifo.totalCostUSD > 0) effectiveCostUSD = fifo.totalCostUSD;
+            if (effectiveCostUSD <= 0 && pts > 0) {
+              const evalRes = JKRWalletEngine.evaluateProductWalletAvailability(prod, 1);
+              const targetWalletId = evalRes.selectedWallet?.id || prod.primaryWalletId || (Array.isArray(prod.walletSources) && prod.walletSources.find((s: any) => s.priority === 1)?.walletId) || prod.walletTypeId;
+              if (targetWalletId) {
+                const fifo = JKRWalletEngine.getWalletEffectivePointCost(targetWalletId, pts);
+                if (fifo.totalCostUSD > 0) effectiveCostUSD = fifo.totalCostUSD;
+              }
             }
 
             // Rule 3 & 4: If product is manual, update ONLY actual cost for FIFO profit accounting.
@@ -613,11 +616,13 @@ export class PricingEngine {
     }
 
     const activeConfig = this.getConfig();
-    const walletId = prod.primaryWalletId || prod.walletTypeId || item.walletTypeId;
     const pts = prod.pointsCostPerUnit || 0;
+    const itmQty = qty;
+    const evalRes = pts > 0 ? JKRWalletEngine.evaluateProductWalletAvailability(prod, itmQty) : null;
+    const walletId = evalRes?.selectedWallet?.id || prod.primaryWalletId || (Array.isArray(prod.walletSources) && prod.walletSources.find((s: any) => s.priority === 1)?.walletId) || prod.walletTypeId || item.walletTypeId;
 
     let freshCostUSD = prod.costUSD || 0;
-    if (freshCostUSD <= 0 && walletId && pts > 0) {
+    if (freshCostUSD <= 0 && pts > 0 && walletId) {
       const fifo = JKRWalletEngine.getWalletEffectivePointCost(walletId, pts);
       if (fifo.totalCostUSD > 0) freshCostUSD = fifo.totalCostUSD;
     }
