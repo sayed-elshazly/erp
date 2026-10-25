@@ -4,7 +4,7 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { StoreWalletTransaction } from '../../types/topup.types';
 import { CustomerTicket } from '../../types/customer.types';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, isStoreWalletTxPositive } from '../../utils/formatters';
 import { copyToClipboard } from '../../utils/clipboard';
 import { useNotifications } from '../../context/NotificationContext';
 import {
@@ -43,7 +43,8 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   if (!transaction) return null;
 
-  const isPositive = transaction.type === 'deposit' || transaction.type === 'transfer_in' || transaction.type === 'refund';
+  const isPositive = isStoreWalletTxPositive(transaction);
+  const displayAmount = Math.abs(transaction.amount || 0);
   const linePhone = transaction.walletPhoneNumber || transaction.receivingPhoneNumber || transaction.senderPhoneNumber;
 
   const getTypeConfig = () => {
@@ -51,6 +52,22 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       case 'deposit':
         return {
           label: 'إيداع نقدي / شحن محفظة',
+          badgeVariant: 'success' as const,
+          colorClass: 'text-emerald-500',
+          bgClass: 'bg-emerald-500/10 border-emerald-500/25',
+          icon: <ArrowDownLeft className="w-5 h-5 text-emerald-500" />
+        };
+      case 'bond_deposit':
+        return {
+          label: 'سند إيداع بضاعة FIFO',
+          badgeVariant: 'success' as const,
+          colorClass: 'text-emerald-500',
+          bgClass: 'bg-emerald-500/10 border-emerald-500/25',
+          icon: <ArrowDownLeft className="w-5 h-5 text-emerald-500" />
+        };
+      case 'compensation':
+        return {
+          label: 'تعويض مسترد',
           badgeVariant: 'success' as const,
           colorClass: 'text-emerald-500',
           bgClass: 'bg-emerald-500/10 border-emerald-500/25',
@@ -90,18 +107,18 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
         };
       case 'cashback':
         return {
-          label: 'كاش باك / حافز',
-          badgeVariant: 'purple' as const,
-          colorClass: 'text-fuchsia-500',
-          bgClass: 'bg-fuchsia-500/10 border-fuchsia-500/25',
+          label: isPositive ? 'كاش باك / حافز 📥' : 'استبدال وخصم كاش باك 📤',
+          badgeVariant: isPositive ? ('purple' as const) : ('warning' as const),
+          colorClass: isPositive ? 'text-fuchsia-500' : 'text-rose-500',
+          bgClass: isPositive ? 'bg-fuchsia-500/10 border-fuchsia-500/25' : 'bg-rose-500/10 border-rose-500/25',
           icon: <Sparkles className="w-5 h-5 text-fuchsia-500" />
         };
       case 'adjustment':
         return {
-          label: 'تسوية رصيد / جرد',
-          badgeVariant: 'info' as const,
-          colorClass: 'text-blue-500',
-          bgClass: 'bg-blue-500/10 border-blue-500/25',
+          label: isPositive ? 'تسوية رصيد إضافة ⚖️' : 'تسوية رصيد خصم ⚖️',
+          badgeVariant: isPositive ? ('success' as const) : ('warning' as const),
+          colorClass: isPositive ? 'text-emerald-500' : 'text-amber-500',
+          bgClass: isPositive ? 'bg-emerald-500/10 border-emerald-500/25' : 'bg-amber-500/10 border-amber-500/25',
           icon: <Layers className="w-5 h-5 text-blue-500" />
         };
       case 'purchase':
@@ -122,7 +139,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
     const summary = `📌 تفاصيل الحركة المالية:
 - النوع: ${typeConfig.label}
 - المعرف: ${transaction.id}
-- المبلغ: ${isPositive ? '+' : '-'}${transaction.amount.toLocaleString()} ${transaction.currency}
+- المبلغ: ${isPositive ? '+' : '-'}${displayAmount.toLocaleString()} ${transaction.currency}
 - المحفظة: ${transaction.walletName}
 ${linePhone ? `- الرقم/الخط: ${linePhone}\n` : ''}- الرصيد قبل: ${transaction.balanceBefore?.toLocaleString() || 0} ${transaction.currency}
 - الرصيد بعد: ${transaction.balanceAfter?.toLocaleString() || 0} ${transaction.currency}
@@ -250,7 +267,7 @@ ${transaction.sourceTicketNumber ? `- رقم التذكرة: ${transaction.sourc
 
             <div class="amount-box">
               <div style="font-size: 12px; color: #666; margin-bottom: 4px;">المبلغ المسجل</div>
-              <div class="val">${isPositive ? '+' : '-'}${transaction.amount.toLocaleString()} ${transaction.currency}</div>
+              <div class="val">${isPositive ? '+' : '-'}${displayAmount.toLocaleString()} ${transaction.currency}</div>
             </div>
 
             <table class="details-table">
@@ -349,7 +366,7 @@ ${transaction.sourceTicketNumber ? `- رقم التذكرة: ${transaction.sourc
                 </span>
               </div>
               <h2 className={`text-2xl font-black font-mono mt-1 ${typeConfig.colorClass}`}>
-                {isPositive ? '+' : '-'}{formatCurrency(transaction.amount, transaction.currency)}
+                {isPositive ? '+' : '-'}{formatCurrency(displayAmount, transaction.currency)}
               </h2>
             </div>
           </div>
@@ -388,7 +405,7 @@ ${transaction.sourceTicketNumber ? `- رقم التذكرة: ${transaction.sourc
           <div className="space-y-1 border-x border-gray-200 dark:border-zinc-800">
             <span className="text-[11px] text-zinc-500 font-bold block">الأثر على الرصيد</span>
             <span className={`font-mono text-xs sm:text-sm font-black ${typeConfig.colorClass}`}>
-              {isPositive ? '+' : '-'}{formatCurrency(transaction.amount, transaction.currency)}
+              {isPositive ? '+' : '-'}{formatCurrency(displayAmount, transaction.currency)}
             </span>
           </div>
 

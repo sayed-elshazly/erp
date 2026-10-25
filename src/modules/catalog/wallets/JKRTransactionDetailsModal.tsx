@@ -172,10 +172,10 @@ export const JKRTransactionDetailsModal: React.FC<JKRTransactionDetailsModalProp
           <div className="text-left font-mono">
             <span className="text-[10px] text-zinc-400 block">القيمة المالية للحركة:</span>
             <strong className="text-base font-black text-emerald-500 block">
-              {formatCurrency(transaction.amountEGP || 0)}
+              {formatCurrency(Math.abs(transaction.amountEGP || 0))}
             </strong>
             {transaction.amountUSD ? (
-              <span className="text-[10px] text-zinc-400">(${transaction.amountUSD} USD)</span>
+              <span className="text-[10px] text-zinc-400">(${Math.abs(transaction.amountUSD)} USD)</span>
             ) : null}
           </div>
         </div>
@@ -195,7 +195,7 @@ export const JKRTransactionDetailsModal: React.FC<JKRTransactionDetailsModalProp
           <div className="p-3 rounded-xl bg-gray-50 dark:bg-[#141417] border border-gray-100 dark:border-[#222228]">
             <span className="text-[10px] text-zinc-400 block">الكمية الداخلة (الوارد):</span>
             <strong className="text-sm font-black text-emerald-500 block mt-0.5">
-              {transaction.quantityIn ? `+${transaction.quantityIn.toLocaleString()}` : '-'}
+              {transaction.quantityIn ? `+${Math.abs(transaction.quantityIn).toLocaleString()}` : '-'}
             </strong>
             <span className="text-[10px] text-zinc-400">{isPoints ? 'نقطة' : 'دولار'}</span>
           </div>
@@ -203,7 +203,7 @@ export const JKRTransactionDetailsModal: React.FC<JKRTransactionDetailsModalProp
           <div className="p-3 rounded-xl bg-gray-50 dark:bg-[#141417] border border-gray-100 dark:border-[#222228]">
             <span className="text-[10px] text-zinc-400 block">الكمية الخارجة (الصادر):</span>
             <strong className="text-sm font-black text-rose-500 block mt-0.5">
-              {transaction.quantityOut ? `-${transaction.quantityOut.toLocaleString()}` : '-'}
+              {transaction.quantityOut ? `-${Math.abs(transaction.quantityOut).toLocaleString()}` : '-'}
             </strong>
             <span className="text-[10px] text-zinc-400">{isPoints ? 'نقطة' : 'دولار'}</span>
           </div>

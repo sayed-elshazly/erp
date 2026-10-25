@@ -46,7 +46,7 @@ import {
   ExternalLink,
   Landmark
 } from 'lucide-react';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, isStoreWalletTxPositive } from '../../utils/formatters';
 import { exportToExcel } from '../../utils/excelExport';
 import { copyToClipboard } from '../../utils/clipboard';
 import { SearchableSelect } from '../../components/common/SearchableSelect';
@@ -292,14 +292,14 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
   // Wallet Lifetime Inflows and Outflows
   const totalInflows = useMemo(() => {
     return transactions
-      .filter(t => t.type === 'deposit' || t.type === 'transfer_in' || (t.amount > 0 && !['withdrawal', 'transfer_out', 'purchase', 'loss'].includes(t.type)))
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
+      .filter(t => t.type === 'deposit' || t.type === 'transfer_in' || t.type === 'cashback' || t.type === 'bond_deposit' || t.type === 'compensation' || (t.type === 'adjustment' && (t.balanceAfter !== undefined && t.balanceBefore !== undefined ? t.balanceAfter >= t.balanceBefore : (t.amount || 0) > 0)))
+      .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
   }, [transactions]);
 
   const totalOutflows = useMemo(() => {
     return transactions
-      .filter(t => t.type === 'withdrawal' || t.type === 'transfer_out' || t.type === 'purchase' || t.type === 'loss' || t.type === 'fee')
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
+      .filter(t => t.type === 'withdrawal' || t.type === 'transfer_out' || t.type === 'purchase' || t.type === 'loss' || t.type === 'fee' || t.type === 'refund' || (t.type === 'adjustment' && (t.balanceAfter !== undefined && t.balanceBefore !== undefined ? t.balanceAfter < t.balanceBefore : false)))
+      .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
   }, [transactions]);
 
   // Displayed Metrics values depending on metricsMode
@@ -1870,50 +1870,54 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
               </div>
 
               <div className="space-y-2">
-                {transactions.slice(0, 5).map(tx => (
-                  <div
-                    key={tx.id}
-                    className="p-3 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
-                          tx.type === 'deposit' || tx.type === 'transfer_in'
-                            ? 'bg-emerald-500/10 text-emerald-500'
-                            : 'bg-rose-500/10 text-rose-500'
-                        }`}
-                      >
-                        {tx.type === 'deposit' || tx.type === 'transfer_in' ? (
-                          <ArrowDownLeft className="w-4 h-4" />
-                        ) : (
-                          <ArrowUpRight className="w-4 h-4" />
-                        )}
+                {transactions.slice(0, 5).map(tx => {
+                  const isPos = isStoreWalletTxPositive(tx);
+                  const displayAmount = Math.abs(tx.amount || 0);
+                  return (
+                    <div
+                      key={tx.id}
+                      className="p-3 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
+                            isPos
+                              ? 'bg-emerald-500/10 text-emerald-500'
+                              : 'bg-rose-500/10 text-rose-500'
+                          }`}
+                        >
+                          {isPos ? (
+                            <ArrowDownLeft className="w-4 h-4" />
+                          ) : (
+                            <ArrowUpRight className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div>
+                          <strong className="text-zinc-900 dark:text-zinc-100 font-bold block">
+                            {tx.description}
+                          </strong>
+                          <span className="text-[10px] text-zinc-400">
+                            {formatDateTime(tx.createdAt)} • بواسطة {tx.performedBy?.name || 'النظام'} • مصدر: {tx.sourceName || tx.sourceType || 'مباشر'}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <strong className="text-zinc-900 dark:text-zinc-100 font-bold block">
-                          {tx.description}
+
+                      <div className="text-left font-mono">
+                        <strong
+                          className={`text-sm font-black block ${
+                            isPos ? 'text-emerald-500' : 'text-rose-500'
+                          }`}
+                        >
+                          {isPos ? '+' : '-'}
+                          {formatCurrency(displayAmount, tx.currency)}
                         </strong>
                         <span className="text-[10px] text-zinc-400">
-                          {formatDateTime(tx.createdAt)} • بواسطة {tx.performedBy?.name || 'النظام'} • مصدر: {tx.sourceName || tx.sourceType || 'مباشر'}
+                          الرصيد بعد: {formatCurrency(tx.balanceAfter, tx.currency)}
                         </span>
                       </div>
                     </div>
-
-                    <div className="text-left font-mono">
-                      <strong
-                        className={`text-sm font-black block ${
-                          tx.type === 'deposit' || tx.type === 'transfer_in' ? 'text-emerald-500' : 'text-rose-500'
-                        }`}
-                      >
-                        {tx.type === 'deposit' || tx.type === 'transfer_in' ? '+' : '-'}
-                        {formatCurrency(tx.amount, tx.currency)}
-                      </strong>
-                      <span className="text-[10px] text-zinc-400">
-                        الرصيد بعد: {formatCurrency(tx.balanceAfter, tx.currency)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -2410,12 +2414,14 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
                                     ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                                     : tx.type === 'cashback'
                                     ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/30'
+                                    : tx.type === 'bond_deposit' || tx.type === 'compensation'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                                     : tx.type === 'adjustment'
                                     ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
                                     : 'bg-purple-500/10 text-purple-400 border-purple-500/30'
                                 }`}
                               >
-                                {tx.type === 'deposit' && <ArrowDownLeft className="w-3 h-3 text-emerald-400" />}
+                                {(tx.type === 'deposit' || tx.type === 'bond_deposit' || tx.type === 'compensation') && <ArrowDownLeft className="w-3 h-3 text-emerald-400" />}
                                 {tx.type === 'withdrawal' && <ArrowUpRight className="w-3 h-3 text-rose-400" />}
                                 {tx.type === 'transfer_in' && <ArrowDownLeft className="w-3 h-3 text-cyan-400" />}
                                 {tx.type === 'transfer_out' && <ArrowUpRight className="w-3 h-3 text-orange-400" />}
@@ -2426,6 +2432,10 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
                                 <span>
                                   {tx.type === 'deposit'
                                     ? 'إيداع'
+                                    : tx.type === 'bond_deposit'
+                                    ? 'سند إيداع بضاعة'
+                                    : tx.type === 'compensation'
+                                    ? 'تعويض مسترد'
                                     : tx.type === 'withdrawal'
                                     ? 'سحب'
                                     : tx.type === 'transfer_in'
@@ -2437,7 +2447,7 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
                                     : tx.type === 'cashback'
                                     ? 'كاش باك'
                                     : tx.type === 'adjustment'
-                                    ? 'تسوية'
+                                    ? ((tx.balanceAfter !== undefined && tx.balanceBefore !== undefined ? tx.balanceAfter >= tx.balanceBefore : (tx.amount || 0) >= 0) ? 'تسوية إضافة' : 'تسوية خصم')
                                     : 'شحن تذكرة'}
                                 </span>
                               </span>
@@ -2456,14 +2466,20 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
                             </td>
 
                             {/* 4. المبلغ */}
-                            <td
-                              className={`p-3 font-bold whitespace-nowrap ${
-                                tx.type === 'deposit' || tx.type === 'transfer_in' ? 'text-emerald-500' : 'text-rose-500'
-                              }`}
-                            >
-                              {tx.type === 'deposit' || tx.type === 'transfer_in' ? '+' : '-'}
-                              {formatCurrency(tx.amount, tx.currency)}
-                            </td>
+                            {(() => {
+                              const isPos = isStoreWalletTxPositive(tx);
+                              const absVal = Math.abs(tx.amount || 0);
+                              return (
+                                <td
+                                  className={`p-3 font-bold whitespace-nowrap ${
+                                    isPos ? 'text-emerald-500' : 'text-rose-500'
+                                  }`}
+                                >
+                                  {isPos ? '+' : '-'}
+                                  {formatCurrency(absVal, tx.currency)}
+                                </td>
+                              );
+                            })()}
 
                             {/* 5. الرصيد بعد */}
                             <td className="p-3 font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">

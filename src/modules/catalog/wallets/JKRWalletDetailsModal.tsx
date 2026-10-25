@@ -1496,12 +1496,12 @@ export const JKRWalletDetailsModal: React.FC<JKRWalletDetailsModalProps> = ({
                           <td className="p-3 font-mono font-black whitespace-nowrap text-xs">
                             {isInbound && t.quantityIn ? (
                               <span className="text-emerald-500 block">
-                                +{t.quantityIn.toLocaleString()} {isPoints ? 'نقطة' : '$'}
+                                +{Math.abs(t.quantityIn).toLocaleString()} {isPoints ? 'نقطة' : '$'}
                               </span>
                             ) : null}
                             {isOutbound && t.quantityOut ? (
                               <span className="text-rose-500 block">
-                                -{t.quantityOut.toLocaleString()} {isPoints ? 'نقطة' : '$'}
+                                -{Math.abs(t.quantityOut).toLocaleString()} {isPoints ? 'نقطة' : '$'}
                               </span>
                             ) : null}
                             {!t.quantityIn && !t.quantityOut && <span className="text-zinc-400">—</span>}
@@ -1520,11 +1520,11 @@ export const JKRWalletDetailsModal: React.FC<JKRWalletDetailsModalProps> = ({
                           {/* 6. Valuation */}
                           <td className="p-3 whitespace-nowrap font-mono">
                             <span className="text-zinc-900 dark:text-zinc-100 font-black text-xs block">
-                              {formatCurrency(t.amountEGP)}
+                              {formatCurrency(Math.abs(t.amountEGP || 0))}
                             </span>
                             {t.amountUSD ? (
                               <span className="text-[10px] text-zinc-400 block">
-                                (${t.amountUSD.toLocaleString()})
+                                (${Math.abs(t.amountUSD).toLocaleString()})
                               </span>
                             ) : null}
                           </td>

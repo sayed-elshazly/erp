@@ -367,7 +367,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                           }
                         >
                           {isRefund || isExpense ? '-' : '+'}
-                          {formatCurrency(tx.amount, tx.currency)}
+                          {formatCurrency(Math.abs(tx.amount || 0), tx.currency)}
                         </span>
                       </td>
                       <td className="p-3 font-bold whitespace-nowrap">

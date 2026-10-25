@@ -214,24 +214,50 @@ export const JKRWalletTransactionsTab: React.FC<JKRWalletTransactionsTabProps> =
   const stats = useMemo(() => {
     let totalIn = 0;
     let totalOut = 0;
-    let totalEGP = 0;
-    let totalUSD = 0;
+    let totalEGPIn = 0;
+    let totalEGPOut = 0;
+    let totalUSDIn = 0;
+    let totalUSDOut = 0;
 
     for (const tx of filteredTransactions) {
-      if (tx.quantityIn) totalIn += tx.quantityIn;
-      if (tx.quantityOut) totalOut += tx.quantityOut;
-      totalEGP += tx.amountEGP || 0;
-      totalUSD += tx.amountUSD || 0;
+      const isIn = (tx.quantityIn !== undefined && tx.quantityIn !== null && tx.quantityIn > 0) ||
+        tx.transactionType === 'DEPOSIT' || tx.transactionType === 'FUNDING' || tx.transactionType === 'RECOVERY';
+      const isOut = (tx.quantityOut !== undefined && tx.quantityOut !== null && tx.quantityOut > 0) ||
+        tx.transactionType === 'CONSUMPTION' || tx.transactionType === 'PURCHASE' || tx.transactionType === 'WITHDRAWAL' || tx.transactionType === 'LOSS';
+
+      if (tx.quantityIn) totalIn += Math.abs(tx.quantityIn);
+      if (tx.quantityOut) totalOut += Math.abs(tx.quantityOut);
+
+      const egp = Math.abs(tx.amountEGP || 0);
+      const usd = Math.abs(tx.amountUSD || 0);
+
+      if (isIn) {
+        totalEGPIn += egp;
+        totalUSDIn += usd;
+      } else if (isOut) {
+        totalEGPOut += egp;
+        totalUSDOut += usd;
+      } else {
+        totalEGPIn += egp;
+        totalUSDIn += usd;
+      }
     }
+
+    const netEGP = totalEGPIn - totalEGPOut;
+    const netUSD = totalUSDIn - totalUSDOut;
 
     return {
       count: filteredTransactions.length,
       totalIn,
       totalOut,
-      totalEGP,
-      totalUSD
+      totalEGP: flowFilter === 'in' ? totalEGPIn : flowFilter === 'out' ? totalEGPOut : netEGP,
+      totalUSD: flowFilter === 'in' ? totalUSDIn : flowFilter === 'out' ? totalUSDOut : netUSD,
+      totalEGPIn,
+      totalEGPOut,
+      totalUSDIn,
+      totalUSDOut
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, flowFilter]);
 
   const getTypeBadge = (type: JKRTransactionType) => {
     switch (type) {
@@ -488,16 +514,20 @@ export const JKRWalletTransactionsTab: React.FC<JKRWalletTransactionsTabProps> =
         </div>
 
         <div className="p-3 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] shadow-xs">
-          <span className="text-[10px] text-zinc-400 block font-bold">إجمالي القيمة (EGP):</span>
-          <strong className="text-base font-black text-zinc-900 dark:text-zinc-100 block mt-0.5">
-            {formatCurrency(stats.totalEGP)}
+          <span className="text-[10px] text-zinc-400 block font-bold">
+            {flowFilter === 'in' ? 'إجمالي الوارد (EGP):' : flowFilter === 'out' ? 'إجمالي الصادر (EGP):' : 'صافي القيمة (Net EGP):'}
+          </span>
+          <strong className={`text-base font-black block mt-0.5 ${stats.totalEGP >= 0 ? 'text-zinc-900 dark:text-zinc-100' : 'text-rose-500'}`}>
+            {stats.totalEGP < 0 ? `-${formatCurrency(Math.abs(stats.totalEGP))}` : formatCurrency(stats.totalEGP)}
           </strong>
         </div>
 
         <div className="p-3 rounded-2xl bg-white dark:bg-[#18181B] border border-gray-200 dark:border-[#27272A] shadow-xs">
-          <span className="text-[10px] text-zinc-400 block font-bold">إجمالي القيمة (USD):</span>
-          <strong className="text-base font-black text-blue-500 block mt-0.5">
-            ${stats.totalUSD.toLocaleString()}
+          <span className="text-[10px] text-zinc-400 block font-bold">
+            {flowFilter === 'in' ? 'إجمالي الوارد (USD):' : flowFilter === 'out' ? 'إجمالي الصادر (USD):' : 'صافي القيمة (Net USD):'}
+          </span>
+          <strong className={`text-base font-black block mt-0.5 ${stats.totalUSD >= 0 ? 'text-blue-500' : 'text-rose-500'}`}>
+            {stats.totalUSD < 0 ? `-$${Math.abs(stats.totalUSD).toLocaleString()}` : `$${stats.totalUSD.toLocaleString()}`}
           </strong>
         </div>
       </div>
@@ -637,12 +667,12 @@ export const JKRWalletTransactionsTab: React.FC<JKRWalletTransactionsTabProps> =
 
                       {/* 7. Quantity In (+) */}
                       <td className="p-2.5 font-bold text-emerald-500">
-                        {tx.quantityIn !== undefined && tx.quantityIn !== null && tx.quantityIn > 0 ? `+${tx.quantityIn.toLocaleString('en-US', { maximumFractionDigits: 4 })}` : '-'}
+                        {tx.quantityIn !== undefined && tx.quantityIn !== null && tx.quantityIn > 0 ? `+${Math.abs(tx.quantityIn).toLocaleString('en-US', { maximumFractionDigits: 4 })}` : '-'}
                       </td>
 
                       {/* 8. Quantity Out (-) */}
                       <td className="p-2.5 font-bold text-rose-500">
-                        {tx.quantityOut !== undefined && tx.quantityOut !== null && tx.quantityOut > 0 ? `-${tx.quantityOut.toLocaleString('en-US', { maximumFractionDigits: 4 })}` : '-'}
+                        {tx.quantityOut !== undefined && tx.quantityOut !== null && tx.quantityOut > 0 ? `-${Math.abs(tx.quantityOut).toLocaleString('en-US', { maximumFractionDigits: 4 })}` : '-'}
                       </td>
 
                       {/* 9. Balance After */}

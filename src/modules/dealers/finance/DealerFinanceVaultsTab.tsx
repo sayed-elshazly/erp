@@ -9,7 +9,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { useNotifications } from '../../../context/NotificationContext';
 import { SafeTransaction, SafeCategory } from '../../../types/finance.types';
 import { StoreWallet } from '../../../types/topup.types';
-import { formatCurrency, formatDateTime } from '../../../utils/formatters';
+import { formatCurrency, formatDateTime, isStoreWalletTxPositive } from '../../../utils/formatters';
 import { exportToExcel } from '../../../utils/excelExport';
 import { DealerDailySettlementModal } from './DealerDailySettlementModal';
 import { CurrencyExchangeModal } from '../../../components/finance/CurrencyExchangeModal';
@@ -350,10 +350,12 @@ export const DealerFinanceVaultsTab: React.FC = () => {
       }
       if (from && ptx.createdAt < from) continue;
       if (to && ptx.createdAt > to) continue;
-      if (ptx.type === 'deposit') {
-        manualProfits += ptx.amount;
-      } else if (ptx.type === 'withdrawal' || ptx.type === 'adjustment') {
-        manualProfits -= ptx.amount;
+      const isPos = isStoreWalletTxPositive(ptx);
+      const absAmt = Math.abs(ptx.amount || 0);
+      if (isPos) {
+        manualProfits += absAmt;
+      } else {
+        manualProfits -= absAmt;
       }
     }
 
@@ -783,16 +785,20 @@ export const DealerFinanceVaultsTab: React.FC = () => {
                   if (tx.sourceType === 'ticket' || tx.sourceTicketNumber || tx.referenceNumber?.startsWith('TKT-') || tx.referenceNumber?.startsWith('DTKT-') || tx.description?.includes('تذكرة')) continue;
                   if (from && tx.createdAt < from) continue;
                   if (to && tx.createdAt > to) continue;
-                  if (tx.type === 'deposit') periodIn += tx.amount;
-                  else if (tx.type === 'withdrawal' || tx.type === 'adjustment') periodOut += tx.amount;
+                  const isPos = isStoreWalletTxPositive(tx);
+                  const absAmt = Math.abs(tx.amount || 0);
+                  if (isPos) periodIn += absAmt;
+                  else periodOut += absAmt;
                 }
               } else {
                 const wTxs = db.getStoreWalletTransactions(w.id);
                 for (const tx of wTxs) {
                   if (from && tx.createdAt < from) continue;
                   if (to && tx.createdAt > to) continue;
-                  if (tx.type === 'deposit') periodIn += tx.amount;
-                  else if (tx.type === 'withdrawal' || tx.type === 'adjustment') periodOut += tx.amount;
+                  const isPos = isStoreWalletTxPositive(tx);
+                  const absAmt = Math.abs(tx.amount || 0);
+                  if (isPos) periodIn += absAmt;
+                  else periodOut += absAmt;
                 }
               }
             }

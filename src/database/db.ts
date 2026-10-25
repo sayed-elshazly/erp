@@ -1,4 +1,4 @@
-import { getDaysInMonth, calculateDailyRate } from '../utils/formatters';
+import { getDaysInMonth, calculateDailyRate, isStoreWalletTxPositive } from '../utils/formatters';
 import {
   initialCustomers,
   initialNotes,
@@ -193,7 +193,7 @@ import {
   CompetitionsDashboardKPIs
 } from '../types/competition.types';
 
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   SETTINGS: 'nzm_jkr_settings',
   USERS: 'nzm_jkr_users',
   CUSTOMERS: 'nzm_jkr_customers',
@@ -435,7 +435,8 @@ class LocalDatabase {
       this.getDealerSalaries();
     }
 
-    // Clean up any historical duplicate profit transactions in w_profits
+    // Clean up any historical duplicate wallet & profit transactions
+    this.cleanupDuplicateWalletTransactions();
     this.cleanupDuplicateProfitTransactions();
 
     // Automatically reconcile cashback for completed first_shipping tickets
@@ -8733,7 +8734,9 @@ class LocalDatabase {
       .filter(tx => tx.type === 'withdrawal' || tx.type === 'transfer_out')
       .reduce((acc, tx) => acc + (tx.amount || 0), 0);
 
-    const walletsTxCount = filteredWalletTxs.length + depositBonds.length;
+    const bondBondNumbers = new Set(depositBonds.map(b => b.bondNumber).filter(Boolean));
+    const uniqueWalletTxs = filteredWalletTxs.filter(tx => !(tx.type === 'bond_deposit' && tx.referenceNumber && bondBondNumbers.has(tx.referenceNumber)));
+    const walletsTxCount = uniqueWalletTxs.length + depositBonds.length;
 
     // Safe Vault Movements
     const vaultCashIn = safeTxs
@@ -8743,9 +8746,9 @@ class LocalDatabase {
       .filter(t => (t.type === 'cash_out' || (t.type === 'settlement' && t.amount < 0)) && this.isDateMatchingFilter(t.createdAt, preset, customStart, customEnd))
       .reduce((acc, t) => acc + Math.abs(t.amount), 0);
 
-    // Wallet Transfers Volume
+    // Wallet Transfers Volume (Count transfer_out only to avoid 2x doubling of internal transfers)
     const totalTransfersVolume = storeWalletTxs
-      .filter(tx => (tx.type === 'transfer_in' || tx.type === 'transfer_out') && this.isDateMatchingFilter(tx.createdAt, preset, customStart, customEnd))
+      .filter(tx => tx.type === 'transfer_out' && this.isDateMatchingFilter(tx.createdAt, preset, customStart, customEnd))
       .reduce((acc, tx) => acc + (tx.amount || 0), 0);
 
     // Unified Totals (Single Source of Truth - grossProfit already accounts only for completed sales net of refunds)
@@ -9326,6 +9329,9 @@ class LocalDatabase {
     // 6. Wallets & Banking Transactions (Vodafone Cash, InstaPay, Banks, JKR Wallets)
     if (dept === 'all' || dept === 'wallets' || dept === 'treasury') {
       const storeWalletTxs = this.getStoreWalletTransactions();
+      const bonds = this.getDepositBondsFIFO();
+      const bondNumbers = new Set(bonds.map(b => b.bondNumber).filter(Boolean));
+
       storeWalletTxs.forEach(wtx => {
         if (!this.isDateMatchingFilter(wtx.createdAt, preset, customStart, customEnd)) return;
         if (!matchesSearch(wtx.walletName, wtx.customerName, wtx.description, wtx.referenceNumber, wtx.notes, wtx.sourceName)) return;
@@ -9337,11 +9343,46 @@ class LocalDatabase {
           return;
         }
 
+        // Avoid doubling FIFO bond deposits already rendered in Deposit Bonds section
+        if (wtx.type === 'bond_deposit' && wtx.referenceNumber && bondNumbers.has(wtx.referenceNumber)) {
+          return;
+        }
+
         const isRefund = wtx.type === 'refund';
-        const isTransfer = wtx.type === 'transfer_in' || wtx.type === 'transfer_out';
-        const isWithdrawal = wtx.type === 'withdrawal';
-        const isDeposit = wtx.type === 'deposit' || wtx.type === 'cashback';
-        const mappedType: UnifiedFinanceTxType = isRefund ? 'refund' : isTransfer ? 'wallet_transfer' : isWithdrawal ? 'wallet_withdrawal' : 'wallet_deposit';
+        const isTransferOut = wtx.type === 'transfer_out';
+        const isTransferIn = wtx.type === 'transfer_in';
+        const isWithdrawal = wtx.type === 'withdrawal' || isTransferOut || wtx.type === 'purchase' || wtx.type === 'loss' || wtx.type === 'fee';
+
+        let mappedType: UnifiedFinanceTxType;
+        let typeLabelArabic: string;
+        let category: any;
+
+        if (isRefund) {
+          mappedType = 'refund';
+          typeLabelArabic = 'استرداد مالي من محفظة';
+          category = 'refund';
+        } else if (isTransferOut) {
+          mappedType = 'wallet_withdrawal';
+          typeLabelArabic = 'تحويل محفظة صادر';
+          category = 'transfer';
+        } else if (isTransferIn) {
+          mappedType = 'wallet_deposit';
+          typeLabelArabic = 'تحويل محفظة وارد';
+          category = 'transfer';
+        } else if (isWithdrawal) {
+          mappedType = 'wallet_withdrawal';
+          typeLabelArabic = wtx.type === 'purchase' ? 'شراء واستهلاك بضاعة' : wtx.type === 'loss' ? 'خسارة محفظة' : wtx.type === 'fee' ? 'رسوم تحويل محفظة' : 'سحب من محفظة';
+          category = 'expense';
+        } else if (wtx.type === 'adjustment') {
+          const isPos = wtx.balanceAfter !== undefined && wtx.balanceBefore !== undefined ? wtx.balanceAfter >= wtx.balanceBefore : (wtx.amount || 0) >= 0;
+          mappedType = isPos ? 'wallet_deposit' : 'wallet_withdrawal';
+          typeLabelArabic = isPos ? 'تسوية محفظة إضافة' : 'تسوية محفظة خصم';
+          category = isPos ? 'customer_deposit' : 'expense';
+        } else {
+          mappedType = 'wallet_deposit';
+          typeLabelArabic = wtx.type === 'bond_deposit' ? 'سند إيداع بضاعة' : wtx.type === 'compensation' ? 'تعويض مسترد' : wtx.type === 'cashback' ? 'إيداع كاش باك' : 'إيداع بمحفظة';
+          category = 'customer_deposit';
+        }
 
         if (txType !== 'all' && txType !== mappedType && txType !== 'transfer' && txType !== 'topup' && !(txType === 'refund' && isRefund)) return;
         if (!matchesStatus('completed')) return;
@@ -9352,9 +9393,9 @@ class LocalDatabase {
           department: 'wallets',
           departmentNameArabic: 'المحافظ والبنوك',
           type: mappedType,
-          typeLabelArabic: isRefund ? 'استرداد مالي من محفظة' : isTransfer ? 'تحويل محفظة' : isWithdrawal ? 'سحب من محفظة' : 'إيداع بمحفظة',
-          category: isRefund ? 'refund' : isTransfer ? 'transfer' : isWithdrawal ? 'expense' : 'customer_deposit',
-          amount: wtx.amount,
+          typeLabelArabic,
+          category,
+          amount: Math.abs(wtx.amount),
           currency: (wtx.currency as any) || 'EGP',
           referenceId: wtx.id,
           referenceNumber: wtx.referenceNumber,
@@ -9372,7 +9413,6 @@ class LocalDatabase {
       });
 
       // Deposit Bonds (FIFO Official Vouchers)
-      const bonds = this.getDepositBondsFIFO();
       bonds.forEach(b => {
         const bDate = b.date || b.createdAt;
         if (!this.isDateMatchingFilter(bDate, preset, customStart, customEnd)) return;
@@ -10522,8 +10562,8 @@ class LocalDatabase {
 
       this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
 
-      const txIdOut = `TRF-OUT-${Date.now().toString().slice(-4)}`;
-      const txIdIn = `TRF-IN-${Date.now().toString().slice(-4)}`;
+      const txIdOut = `TRF-OUT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      const txIdIn = `TRF-IN-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
       this.addStoreWalletTransaction({
         walletId: fromW.id,
@@ -10569,15 +10609,22 @@ class LocalDatabase {
   public getStoreWalletTransactions(walletId?: string): StoreWalletTransaction[] {
     const all = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
     if (walletId && walletId !== 'all') {
-      const explicit = all.filter(t => t.walletId === walletId || t.relatedWalletId === walletId);
+      const explicit = all.filter(t => t.walletId === walletId);
       if (walletId === 'w_cashback') {
         const allCbUnifiedTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.CASHBACK, initialUnifiedWalletTransactions)
           .filter(t => t.walletType === 'cashback');
         const allCust = this.getCustomers();
-        const mappedUnifiedTxs: StoreWalletTransaction[] = allCbUnifiedTxs.map(u => {
+        const mappedUnifiedTxs: StoreWalletTransaction[] = [];
+        for (const u of allCbUnifiedTxs) {
+          // De-duplicate: If an explicit transaction already represents this order or ID, skip
+          const alreadyInExplicit = explicit.some(
+            e => e.id === u.id || (u.orderNumber && (e.referenceNumber === u.orderNumber || e.sourceTicketNumber === u.orderNumber))
+          );
+          if (alreadyInExplicit) continue;
+
           const cust = allCust.find(c => c.id === u.customerId);
           const isDeduction = u.type === 'redeemed' || u.type === 'debit';
-          return {
+          mappedUnifiedTxs.push({
             id: u.id,
             walletId: 'w_cashback',
             walletName: 'محفظة الكاش باك المجمعة (Cashback System)',
@@ -10594,18 +10641,23 @@ class LocalDatabase {
             sourceName: 'كاش باك نظامي',
             notes: u.notes,
             createdAt: u.createdAt
-          };
-        });
+          });
+        }
 
         // Add initial or current balance entries for customers who hold cashback
         for (const cust of allCust) {
-          if (cust.cashbackBalance && cust.cashbackBalance > 0 && !allCbUnifiedTxs.some(t => t.customerId === cust.id)) {
+          if (
+            cust.cashbackBalance &&
+            cust.cashbackBalance > 0 &&
+            !allCbUnifiedTxs.some(t => t.customerId === cust.id) &&
+            !explicit.some(e => e.customerName === cust.name && e.sourceType === 'cashback')
+          ) {
             mappedUnifiedTxs.push({
               id: `cb_init_${cust.id}`,
               walletId: 'w_cashback',
               walletName: 'محفظة الكاش باك المجمعة (Cashback System)',
               type: 'cashback' as any,
-              amount: cust.cashbackBalance,
+              amount: Math.abs(cust.cashbackBalance),
               currency: 'EGP',
               balanceBefore: 0,
               balanceAfter: cust.cashbackBalance,
@@ -10620,9 +10672,16 @@ class LocalDatabase {
 
         const combined = [...explicit, ...mappedUnifiedTxs];
         const seen = new Set<string>();
+        const seenRefs = new Set<string>();
         return combined.filter(t => {
           if (seen.has(t.id)) return false;
           seen.add(t.id);
+          const ref = t.referenceNumber || t.sourceTicketNumber;
+          if (ref && (t.type === 'cashback' || t.type === 'deposit')) {
+            const key = `${t.walletId}_${ref}_${t.type}`;
+            if (seenRefs.has(key)) return false;
+            seenRefs.add(key);
+          }
           return true;
         }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
@@ -10796,6 +10855,19 @@ class LocalDatabase {
     }
   ): { success: boolean; isLimitExceeded?: boolean; isLimitWarning?: boolean; message?: string } {
     if (!walletIdOrName || amount <= 0) return { success: false };
+
+    // Idempotency guard: prevent duplicate wallet deposit for the same ticket
+    if (ticketNumber) {
+      const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+      const alreadyLogged = allTx.some(
+        tx => (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber) &&
+              tx.type === 'deposit' &&
+              (tx.sourceType === 'ticket' || tx.description?.includes(ticketNumber))
+      );
+      if (alreadyLogged) {
+        return { success: true, message: 'تم استلام دفعة التذكرة مسبقاً' };
+      }
+    }
 
     const wallets = this.getStoreWallets();
     const isSystem = (x: any) =>
@@ -10980,6 +11052,17 @@ class LocalDatabase {
       const wallets = this.getDealerWallets();
       const cbWallet = wallets.find(w => w.id === 'mw_cashback' || w.systemType === 'cashback');
       if (cbWallet) {
+        if (ticketNumber) {
+          const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+          const alreadyLogged = allTx.some(
+            tx => tx.walletId === cbWallet.id &&
+                  (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber) &&
+                  tx.type === 'cashback' &&
+                  tx.description?.includes('إيداع')
+          );
+          if (alreadyLogged) return;
+        }
+
         const before = cbWallet.balance;
         cbWallet.balance = Math.round((cbWallet.balance + amount) * 100) / 100;
         cbWallet.totalReceived = Math.round(((cbWallet.totalReceived || 0) + amount) * 100) / 100;
@@ -11010,6 +11093,17 @@ class LocalDatabase {
     const wallets = this.getStoreWallets();
     const cbWallet = wallets.find(w => w.id === 'w_cashback' || w.systemType === 'cashback');
     if (cbWallet) {
+      if (ticketNumber) {
+        const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+        const alreadyLogged = allTx.some(
+          tx => tx.walletId === cbWallet.id &&
+                (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber) &&
+                tx.type === 'cashback' &&
+                tx.description?.includes('إيداع')
+        );
+        if (alreadyLogged) return;
+      }
+
       const before = cbWallet.balance;
       cbWallet.balance = Math.round((cbWallet.balance + amount) * 100) / 100;
       cbWallet.totalReceived = Math.round(((cbWallet.totalReceived || 0) + amount) * 100) / 100;
@@ -11042,6 +11136,16 @@ class LocalDatabase {
       const wallets = this.getDealerWallets();
       const cbWallet = wallets.find(w => w.id === 'mw_cashback' || w.systemType === 'cashback');
       if (cbWallet) {
+        if (ticketNumber) {
+          const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+          const alreadyLogged = allTx.some(
+            tx => tx.walletId === cbWallet.id &&
+                  (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber) &&
+                  (tx.description?.includes('خصم') || tx.description?.includes('استبدال'))
+          );
+          if (alreadyLogged) return;
+        }
+
         const before = cbWallet.balance;
         cbWallet.balance = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
         cbWallet.totalWithdrawn = Math.round(((cbWallet.totalWithdrawn || 0) + amount) * 100) / 100;
@@ -11051,7 +11155,7 @@ class LocalDatabase {
         this.addStoreWalletTransaction({
           walletId: cbWallet.id,
           walletName: cbWallet.name,
-          type: 'cashback',
+          type: 'withdrawal',
           amount,
           currency: 'EGP',
           balanceBefore: before,
@@ -11072,6 +11176,16 @@ class LocalDatabase {
     const wallets = this.getStoreWallets();
     const cbWallet = wallets.find(w => w.id === 'w_cashback' || w.systemType === 'cashback');
     if (cbWallet) {
+      if (ticketNumber) {
+        const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+        const alreadyLogged = allTx.some(
+          tx => tx.walletId === cbWallet.id &&
+                (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber) &&
+                (tx.description?.includes('خصم') || tx.description?.includes('استبدال'))
+        );
+        if (alreadyLogged) return;
+      }
+
       const before = cbWallet.balance;
       cbWallet.balance = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
       cbWallet.totalWithdrawn = Math.round(((cbWallet.totalWithdrawn || 0) + amount) * 100) / 100;
@@ -11081,7 +11195,7 @@ class LocalDatabase {
       this.addStoreWalletTransaction({
         walletId: cbWallet.id,
         walletName: cbWallet.name,
-        type: 'cashback',
+        type: 'withdrawal',
         amount,
         currency: 'EGP',
         balanceBefore: before,
@@ -11753,6 +11867,87 @@ class LocalDatabase {
       }
     } catch (e) {
       console.error('Error cleaning duplicate profit transactions:', e);
+    }
+  }
+
+  public cleanupDuplicateWalletTransactions(): void {
+    try {
+      const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+      const wallets = this.getItem<StoreWallet[]>(STORAGE_KEYS.STORE_WALLETS, initialStoreWallets);
+      const dealerWallets = this.getDealerWallets();
+
+      const seenKeys = new Set<string>();
+      const seenTxIds = new Set<string>();
+      const cleanedTx: StoreWalletTransaction[] = [];
+      const walletDeltas: Record<string, { balanceDelta: number; receivedDelta: number; withdrawnDelta: number }> = {};
+      let hasDuplicates = false;
+
+      for (const tx of allTx) {
+        if (seenTxIds.has(tx.id)) {
+          hasDuplicates = true;
+          continue;
+        }
+        seenTxIds.add(tx.id);
+
+        const refKey = tx.referenceNumber || tx.sourceTicketNumber;
+        if (refKey) {
+          const compKey = `${tx.walletId}__${refKey}__${tx.type}`;
+          if (seenKeys.has(compKey)) {
+            hasDuplicates = true;
+            if (!walletDeltas[tx.walletId]) {
+              walletDeltas[tx.walletId] = { balanceDelta: 0, receivedDelta: 0, withdrawnDelta: 0 };
+            }
+            const isPos = isStoreWalletTxPositive(tx);
+            const absAmt = Math.abs(tx.amount || 0);
+            if (isPos) {
+              walletDeltas[tx.walletId].balanceDelta -= absAmt;
+              walletDeltas[tx.walletId].receivedDelta -= absAmt;
+            } else {
+              walletDeltas[tx.walletId].balanceDelta += absAmt;
+              walletDeltas[tx.walletId].withdrawnDelta -= absAmt;
+            }
+            continue;
+          }
+          seenKeys.add(compKey);
+        }
+        cleanedTx.push(tx);
+      }
+
+      if (hasDuplicates) {
+        let walletsModified = false;
+        for (const w of wallets) {
+          if (walletDeltas[w.id]) {
+            const delta = walletDeltas[w.id];
+            w.balance = Math.max(0, Math.round((w.balance + delta.balanceDelta) * 100) / 100);
+            w.totalReceived = Math.max(0, Math.round(((w.totalReceived || 0) + delta.receivedDelta) * 100) / 100);
+            w.totalWithdrawn = Math.max(0, Math.round(((w.totalWithdrawn || 0) + delta.withdrawnDelta) * 100) / 100);
+            w.updatedAt = new Date().toISOString();
+            walletsModified = true;
+          }
+        }
+        if (walletsModified) {
+          this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+        }
+
+        let dealerWalletsModified = false;
+        for (const dw of dealerWallets) {
+          if (walletDeltas[dw.id]) {
+            const delta = walletDeltas[dw.id];
+            dw.balance = Math.max(0, Math.round((dw.balance + delta.balanceDelta) * 100) / 100);
+            dw.totalReceived = Math.max(0, Math.round(((dw.totalReceived || 0) + delta.receivedDelta) * 100) / 100);
+            dw.totalWithdrawn = Math.max(0, Math.round(((dw.totalWithdrawn || 0) + delta.withdrawnDelta) * 100) / 100);
+            dw.updatedAt = new Date().toISOString();
+            dealerWalletsModified = true;
+          }
+        }
+        if (dealerWalletsModified) {
+          this.setItem(STORAGE_KEYS.DEALER_WALLETS, dealerWallets);
+        }
+
+        this.setItem(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, cleanedTx);
+      }
+    } catch (e) {
+      console.error('Error cleaning duplicate wallet transactions:', e);
     }
   }
 

@@ -9,7 +9,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { StoreWallet, StoreWalletTransaction } from '../../types/topup.types';
 import { SearchableSelect, SearchableSelectOption } from '../../components/common/SearchableSelect';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, isStoreWalletTxPositive } from '../../utils/formatters';
 import { exportToExcel } from '../../utils/excelExport';
 import {
   CreditCard,
@@ -76,7 +76,7 @@ export const FinanceWallets: React.FC<FinanceWalletsProps> = ({
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      if (selectedWalletId !== 'all' && t.walletId !== selectedWalletId && t.relatedWalletId !== selectedWalletId) {
+      if (selectedWalletId !== 'all' && t.walletId !== selectedWalletId) {
         return false;
       }
       if (typeFilter !== 'all' && t.type !== typeFilter) return false;
@@ -137,18 +137,60 @@ export const FinanceWallets: React.FC<FinanceWalletsProps> = ({
     }
   };
 
+  const isTransactionPositive = (t: StoreWalletTransaction): boolean => {
+    return isStoreWalletTxPositive(t);
+  };
+
+  const getTxBadge = (type: string, isPos: boolean) => {
+    switch (type) {
+      case 'deposit':
+        return { variant: 'success' as const, label: '📥 إيداع' };
+      case 'bond_deposit':
+        return { variant: 'success' as const, label: '📦 سند إيداع بضاعة' };
+      case 'transfer_in':
+        return { variant: 'info' as const, label: '🔄 تحويل وارد' };
+      case 'transfer_out':
+        return { variant: 'warning' as const, label: '🔄 تحويل صادر' };
+      case 'cashback':
+        return { variant: isPos ? ('purple' as const) : ('danger' as const), label: isPos ? '✨ كاش باك' : '✨ استبدال كاش باك' };
+      case 'compensation':
+        return { variant: 'success' as const, label: '🛡️ تعويض مسترد' };
+      case 'withdrawal':
+        return { variant: 'danger' as const, label: '📤 سحب' };
+      case 'purchase':
+        return { variant: 'danger' as const, label: '🛒 شراء واستهلاك' };
+      case 'refund':
+        return { variant: 'danger' as const, label: '↩️ استرداد' };
+      case 'loss':
+        return { variant: 'danger' as const, label: '⚠️ خسارة' };
+      case 'fee':
+        return { variant: 'warning' as const, label: '🏷️ رسوم' };
+      case 'freeze':
+        return { variant: 'info' as const, label: '🔒 تجميد' };
+      case 'adjustment':
+        return { variant: isPos ? ('success' as const) : ('warning' as const), label: isPos ? '⚖️ تسوية إضافة' : '⚖️ تسوية خصم' };
+      default:
+        return { variant: isPos ? ('success' as const) : ('danger' as const), label: isPos ? '📥 وارد' : '📤 صادر' };
+    }
+  };
+
   const handleExport = () => {
-    const data = filteredTransactions.map(t => ({
-      'التاريخ': formatDateTime(t.createdAt),
-      'المحفظة': t.walletName,
-      'نوع الحركة': t.type === 'deposit' ? 'إيداع' : t.type === 'withdrawal' ? 'سحب' : 'تحويل',
-      'المبلغ': t.amount,
-      'الرصيد بعد الحركة': t.balanceAfter,
-      'البيان': t.description,
-      'العميل / الطرف': t.customerName || '-',
-      'رقم المرجع': t.referenceNumber || '-',
-      'الملاحظات': t.notes || '-'
-    }));
+    const data = filteredTransactions.map(t => {
+      const isPos = isTransactionPositive(t);
+      const badge = getTxBadge(t.type, isPos);
+      const absAmount = Math.abs(t.amount || 0);
+      return {
+        'التاريخ': formatDateTime(t.createdAt),
+        'المحفظة': t.walletName,
+        'نوع الحركة': badge.label,
+        'المبلغ': `${isPos ? '+' : '-'}${absAmount}`,
+        'الرصيد بعد الحركة': t.balanceAfter,
+        'البيان': t.description,
+        'العميل / الطرف': t.customerName || '-',
+        'رقم المرجع': t.referenceNumber || '-',
+        'الملاحظات': t.notes || '-'
+      };
+    });
     exportToExcel(data, `حركات_المحافظ_${new Date().toISOString().split('T')[0]}`);
   };
 
@@ -347,10 +389,14 @@ export const FinanceWallets: React.FC<FinanceWalletsProps> = ({
           <div className="md:col-span-3">
             <SearchableSelect
               options={[
-                { value: 'deposit', label: 'إيداعات', icon: <span className="text-xs">📥</span> },
-                { value: 'withdrawal', label: 'سحوبات', icon: <span className="text-xs">📤</span> },
+                { value: 'deposit', label: 'إيداعات نقدية', icon: <span className="text-xs">📥</span> },
+                { value: 'bond_deposit', label: 'سندات إيداع بضاعة FIFO', icon: <span className="text-xs">📦</span> },
+                { value: 'withdrawal', label: 'سحوبات نقدية', icon: <span className="text-xs">📤</span> },
                 { value: 'transfer_in', label: 'تحويلات واردة', icon: <span className="text-xs">🔄</span> },
-                { value: 'transfer_out', label: 'تحويلات صادرة', icon: <span className="text-xs">🔄</span> }
+                { value: 'transfer_out', label: 'تحويلات صادرة', icon: <span className="text-xs">🔄</span> },
+                { value: 'cashback', label: 'حركات كاش باك', icon: <span className="text-xs">✨</span> },
+                { value: 'compensation', label: 'تعويضات مستردة', icon: <span className="text-xs">🛡️</span> },
+                { value: 'adjustment', label: 'تسويات وأرصدة', icon: <span className="text-xs">⚖️</span> }
               ]}
               value={typeFilter}
               onChange={setTypeFilter}
@@ -384,7 +430,9 @@ export const FinanceWallets: React.FC<FinanceWalletsProps> = ({
                 </tr>
               ) : (
                 filteredTransactions.map(tx => {
-                  const isDeposit = tx.type === 'deposit' || tx.type === 'transfer_in' || tx.type === 'cashback';
+                  const isPositive = isTransactionPositive(tx);
+                  const badge = getTxBadge(tx.type, isPositive);
+                  const displayAmount = Math.abs(tx.amount || 0);
                   return (
                     <tr
                       key={tx.id}
@@ -398,16 +446,16 @@ export const FinanceWallets: React.FC<FinanceWalletsProps> = ({
                       </td>
                       <td className="p-3 whitespace-nowrap">
                         <Badge
-                          variant={isDeposit ? 'success' : tx.type === 'transfer_out' ? 'warning' : 'danger'}
+                          variant={badge.variant}
                           className="text-[10px]"
                         >
-                          {isDeposit ? '📥 إيداع' : tx.type === 'transfer_out' ? '🔄 تحويل' : '📤 سحب'}
+                          {badge.label}
                         </Badge>
                       </td>
                       <td className="p-3 font-black whitespace-nowrap">
-                        <span className={isDeposit ? 'text-emerald-500' : 'text-rose-500'}>
-                          {isDeposit ? '+' : '-'}
-                          {formatCurrency(tx.amount, (tx.currency as any) || 'EGP')}
+                        <span className={isPositive ? 'text-emerald-500' : 'text-rose-500'}>
+                          {isPositive ? '+' : '-'}
+                          {formatCurrency(displayAmount, (tx.currency as any) || 'EGP')}
                         </span>
                       </td>
                       <td className="p-3 font-black text-zinc-900 dark:text-zinc-100 whitespace-nowrap">

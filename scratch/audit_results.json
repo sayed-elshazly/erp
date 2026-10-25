@@ -8,7 +8,7 @@
     "expected": "Customer saved and balance synchronized with ledger",
     "actual": "Found: Bal=1500, CB=150",
     "evidence": {
-      "id": "cust_test_1792910390295",
+      "id": "cust_test_1792913844185",
       "name": "أحمد محمود العشري",
       "phone": "+201011223344",
       "code": "CUST-TEST-01",
@@ -20,13 +20,13 @@
       "currentDebt": 0,
       "totalSpent": 0,
       "totalOrders": 0,
-      "createdAt": "2026-10-25T06:39:50.295Z",
+      "createdAt": "2026-10-25T07:37:24.185Z",
       "firstMonthCommissionRate": 1,
       "lifetimeCommissionRate": 1,
       "customCommissionRate": 1,
       "highCashbackRate": 1,
       "normalCashbackRate": 1,
-      "updatedAt": "2026-10-25T06:39:50.298Z",
+      "updatedAt": "2026-10-25T07:37:24.187Z",
       "totalCashbackEarned": 150,
       "loyaltyTier": "normal",
       "maxSingleOrderAmount": 0,
@@ -35,7 +35,7 @@
       "lifetimeSpendingTier": "bronze",
       "favoriteGame": "Free Fire"
     },
-    "durationMs": 3
+    "durationMs": 2
   },
   {
     "id": "CUST-02",
@@ -69,7 +69,7 @@
         "cb": 175
       }
     },
-    "durationMs": 1
+    "durationMs": 0
   },
   {
     "id": "CUST-04",
@@ -83,7 +83,7 @@
       "activeCount": 5,
       "archivedCount": 1
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "DEAL-01",
@@ -94,7 +94,7 @@
     "expected": "Dealer saved with wholesale tier and credit limit",
     "actual": "Dealer: مؤسسة الأمل لتوزيع البطاقات, Bal=5000, Discount=7.5%",
     "evidence": {
-      "id": "dealer_test_1792910390300",
+      "id": "dealer_test_1792913844189",
       "name": "مؤسسة الأمل لتوزيع البطاقات",
       "companyName": "الأمل كارد",
       "phone": "+201099990001",
@@ -105,8 +105,8 @@
       "pricingTier": "tier_vip",
       "wholesaleDiscountRate": 7.5,
       "partnerCommissionPercent": 3,
-      "createdAt": "2026-10-25T06:39:50.300Z",
-      "updatedAt": "2026-10-25T06:39:50.300Z",
+      "createdAt": "2026-10-25T07:37:24.189Z",
+      "updatedAt": "2026-10-25T07:37:24.190Z",
       "totalOrders": 0,
       "loyaltyTier": "normal",
       "maxSingleOrderAmount": 0,
@@ -135,11 +135,11 @@
       "remainingAmount": 2000,
       "status": "partially_paid",
       "notes": "فاتورة شحن آجل #INV-9901",
-      "id": "d_debt_1792910390301_l0vt",
+      "id": "d_debt_1792913844191_cups",
       "installments": [
         {
           "id": "inst_01",
-          "debtId": "d_debt_1792910390301_l0vt",
+          "debtId": "d_debt_1792913844191_cups",
           "amount": 1000,
           "paymentDate": "2026-10-25",
           "paidBy": "مؤسسة الأمل لتوزيع البطاقات",
@@ -147,7 +147,7 @@
         }
       ],
       "isArchived": false,
-      "createdAt": "2026-10-25T06:39:50.301Z"
+      "createdAt": "2026-10-25T07:37:24.191Z"
     },
     "durationMs": 1
   },
@@ -161,12 +161,12 @@
     "actual": "Sub-wallet points balance: 1000, Lot points: 1000",
     "evidence": {
       "subWAfter": {
-        "id": "w_sub_1792910390302",
+        "id": "w_sub_1792913844192",
         "name": "محفظة نقاط ببجي الاختبارية",
         "type": "SUB",
         "currency": "USD",
         "pointType": "PUBG_UC",
-        "parentWalletId": "w_main_1792910390301",
+        "parentWalletId": "w_main_1792913844191",
         "balanceEGP": 0,
         "balanceUSD": 0,
         "pointsBalance": 1000,
@@ -177,16 +177,16 @@
         "recoveredLossAmount": 0,
         "isActive": true,
         "department": "customers",
-        "createdAt": "2026-10-25T06:39:50.302Z",
-        "updatedAt": "2026-10-25T06:39:50.314Z",
+        "createdAt": "2026-10-25T07:37:24.192Z",
+        "updatedAt": "2026-10-25T07:37:24.204Z",
         "createdBy": "المسؤول",
         "updatedBy": "المسؤول"
       },
       "lot": {
-        "id": "lot_sub_1792910390302",
-        "lotNumber": "LOT-PTS-390302",
-        "walletId": "w_sub_1792910390302",
-        "sourceTransactionId": "tx_dep_1792910390302",
+        "id": "lot_sub_1792913844193",
+        "lotNumber": "LOT-PTS-844193",
+        "walletId": "w_sub_1792913844192",
+        "sourceTransactionId": "tx_dep_1792913844193",
         "currencyOrPoints": "POINTS",
         "initialQuantity": 1000,
         "remainingQuantity": 1000,
@@ -198,14 +198,14 @@
         "usdRateOverridden": false,
         "consumedSources": [
           {
-            "sourceLotId": "lot_main_1792910390302",
+            "sourceLotId": "lot_main_1792913844192",
             "consumedAmountUSD": 10,
             "rateEGP": 50,
             "costEGP": 500
           }
         ],
-        "purchaseDate": "2026-10-25T06:39:50.302Z",
-        "createdAt": "2026-10-25T06:39:50.302Z"
+        "purchaseDate": "2026-10-25T07:37:24.193Z",
+        "createdAt": "2026-10-25T07:37:24.193Z"
       }
     },
     "durationMs": 13
@@ -223,11 +223,11 @@
       "totalCostUSD": 4,
       "consumedLots": [
         {
-          "lotId": "lot_sub_1792910390302",
-          "lotNumber": "LOT-PTS-390302",
-          "depositBondNumber": "tx_dep_1792910390302",
-          "depositDate": "2026-10-25T06:39:50.302Z",
-          "walletId": "w_sub_1792910390302",
+          "lotId": "lot_sub_1792913844193",
+          "lotNumber": "LOT-PTS-844193",
+          "depositBondNumber": "tx_dep_1792913844193",
+          "depositDate": "2026-10-25T07:37:24.193Z",
+          "walletId": "w_sub_1792913844192",
           "walletName": "محفظة نقاط ببجي الاختبارية",
           "pointsBefore": 1000,
           "pointsConsumed": 400,
@@ -241,15 +241,15 @@
       ],
       "consumptions": [
         {
-          "id": "cons_1792910390315_lot_sub_1792910390302",
+          "id": "cons_1792913844205_lot_sub_1792913844193",
           "ticketId": "TKT-TEST-FIFO-01",
-          "walletId": "w_sub_1792910390302",
-          "lotId": "lot_sub_1792910390302",
-          "lotNumber": "LOT-PTS-390302",
+          "walletId": "w_sub_1792913844192",
+          "lotId": "lot_sub_1792913844193",
+          "lotNumber": "LOT-PTS-844193",
           "pointsConsumed": 400,
           "costEGP": 200,
           "costUSD": 4,
-          "createdAt": "2026-10-25T06:39:50.315Z"
+          "createdAt": "2026-10-25T07:37:24.205Z"
         }
       ]
     },
@@ -278,9 +278,9 @@
     "expected": "Calculates exact net profit = (Total - COGS - Cashback - Referral - FixedCost)",
     "actual": "Saved: Total=200, Cost=140, Profit=41 (expected 41)",
     "evidence": {
-      "id": "tkt_audit_1792910390316",
+      "id": "tkt_audit_1792913844206",
       "ticketNumber": "TKT-AUD-01",
-      "customerId": "cust_test_1792910390295",
+      "customerId": "cust_test_1792913844185",
       "customerName": "أحمد محمود العشري",
       "customerPhone": "+201011223344",
       "gameId": "game_pubg",
@@ -302,8 +302,8 @@
       "status": "pending",
       "paymentMethod": "vodafone_cash",
       "isPaid": true,
-      "createdAt": "2026-10-25T06:39:50.316Z",
-      "updatedAt": "2026-10-25T06:39:50.316Z"
+      "createdAt": "2026-10-25T07:37:24.206Z",
+      "updatedAt": "2026-10-25T07:37:24.206Z"
     },
     "durationMs": 7
   },
@@ -329,7 +329,7 @@
     "expected": "Ticket status becomes refunded, records refund details",
     "actual": "Refunded status: refunded",
     "evidence": {
-      "id": "tkt_refund_test_1792910390327",
+      "id": "tkt_refund_test_1792913844217",
       "ticketNumber": "TKT-REF-01",
       "customerId": "cust_sample_ref",
       "customerName": "عميل استرداد تجريبي",
@@ -337,8 +337,8 @@
       "paidAmount": 300,
       "status": "refunded",
       "isPaid": true,
-      "createdAt": "2026-10-25T06:39:50.327Z",
-      "updatedAt": "2026-10-25T06:39:50.330Z",
+      "createdAt": "2026-10-25T07:37:24.217Z",
+      "updatedAt": "2026-10-25T07:37:24.220Z",
       "refundDetails": {
         "amount": 300,
         "originalTotalAmount": 300,
@@ -348,27 +348,27 @@
         "refundWalletName": "فودافون كاش - تشغيل 1",
         "reason": "استرداد المبلغ",
         "refundedBy": "المدير",
-        "refundedAt": "2026-10-25T06:39:50.330Z",
+        "refundedAt": "2026-10-25T07:37:24.220Z",
         "history": [
           {
-            "id": "ref_1792910390330_gum1",
+            "id": "ref_1792913844220_9wrv",
             "amount": 300,
             "refundWalletId": "w_op_1",
             "refundWalletName": "فودافون كاش - تشغيل 1",
             "reason": "استرداد المبلغ",
             "refundedBy": "المدير",
-            "refundedAt": "2026-10-25T06:39:50.330Z"
+            "refundedAt": "2026-10-25T07:37:24.220Z"
           }
         ]
       },
       "historyLog": [
         {
-          "id": "log_1792910390330",
+          "id": "log_1792913844220",
           "action": "استرداد مالي كلي للتذكرة بمبلغ 300 ج (إجمالي المسترد: 300 ج، المتبقي: 0 ج)",
           "previousStatus": "completed",
           "newStatus": "refunded",
           "performedBy": "المدير",
-          "timestamp": "2026-10-25T06:39:50.330Z",
+          "timestamp": "2026-10-25T07:37:24.220Z",
           "notes": "استرداد المبلغ"
         }
       ]
@@ -397,7 +397,7 @@
     "testName": "Add Expense and Categorize Correctly",
     "status": "PASS",
     "expected": "Expense stored with category and deducts from vault if paidFromVault",
-    "actual": "Expense recorded: exp_1792910390333, Vault before: 28000, Vault after: 27550",
+    "actual": "Expense recorded: exp_1792913844223, Vault before: 28000, Vault after: 27550",
     "evidence": {
       "savedExp": {
         "title": "فاتورة إنترنت وتجديد دومين",
@@ -406,8 +406,8 @@
         "paymentMethod": "cash",
         "paidFromVault": true,
         "notes": "مصروفات تشغيلية أساسية",
-        "id": "exp_1792910390333",
-        "createdAt": "2026-10-25T06:39:50.333Z",
+        "id": "exp_1792913844223",
+        "createdAt": "2026-10-25T07:37:24.223Z",
         "isArchived": false
       },
       "updatedVault": 27550
@@ -426,7 +426,7 @@
       "initialVault": 27550,
       "updatedVault": 27550
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "FIN-04",
@@ -437,7 +437,7 @@
     "expected": "Variance computed accurately (Actual - Expected)",
     "actual": "Shift Settlement recorded with variance/difference: -50",
     "evidence": {
-      "id": "shift_1792910390333",
+      "id": "shift_1792913844224",
       "employeeId": "emp_01",
       "employeeName": "كابتن محمد",
       "shiftType": "morning",
@@ -446,7 +446,7 @@
       "variance": -50,
       "status": "shortage",
       "notes": "عجز 50 جنيه جاري مراجعته",
-      "createdAt": "2026-10-25T06:39:50.333Z"
+      "createdAt": "2026-10-25T07:37:24.224Z"
     },
     "durationMs": 0
   },
@@ -459,7 +459,7 @@
     "expected": "Deal saved in pending or in_progress status with correct commission",
     "actual": "Deal: DEAL-9001, Total: 4200, Fee: 200",
     "evidence": {
-      "id": "deal_test_1792910390334",
+      "id": "deal_test_1792913844224",
       "dealNumber": "DEAL-9001",
       "title": "وساطة بيع حساب ببجي ميثيك لفل 75",
       "buyerName": "طارق الزيات",
@@ -472,10 +472,10 @@
       "totalCollected": 4200,
       "warrantyDays": 7,
       "status": "in_progress",
-      "createdAt": "2026-10-25T06:39:50.334Z",
-      "updatedAt": "2026-10-25T06:39:50.334Z"
+      "createdAt": "2026-10-25T07:37:24.224Z",
+      "updatedAt": "2026-10-25T07:37:24.224Z"
     },
-    "durationMs": 1
+    "durationMs": 0
   },
   {
     "id": "MID-02",
@@ -487,7 +487,7 @@
     "actual": "After update: sold",
     "evidence": {
       "accAfter": {
-        "id": "acc_inv_1792910390334",
+        "id": "acc_inv_1792913844224",
         "game": "ببجي موبايل PUBG",
         "accountLogin": "player_legend_2026@gmail.com",
         "purchasePrice": 1500,
@@ -495,15 +495,15 @@
         "expectedProfit": 700,
         "status": "sold",
         "warrantyPeriod": "15_days",
-        "createdAt": "2026-10-25T06:39:50.334Z",
+        "createdAt": "2026-10-25T07:37:24.224Z",
         "initialQuantity": 1,
         "availableQuantity": 1,
         "soldQuantity": 0,
-        "updatedAt": "2026-10-25T06:39:50.334Z",
+        "updatedAt": "2026-10-25T07:37:24.225Z",
         "salesHistory": []
       }
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "MID-03",
@@ -514,7 +514,7 @@
     "expected": "Deal status becomes completed, fee recorded as profit",
     "actual": "Deal status: completed",
     "evidence": {
-      "id": "deal_test_1792910390334",
+      "id": "deal_test_1792913844224",
       "dealNumber": "DEAL-9001",
       "title": "وساطة بيع حساب ببجي ميثيك لفل 75",
       "buyerName": "طارق الزيات",
@@ -527,10 +527,10 @@
       "totalCollected": 4200,
       "warrantyDays": 7,
       "status": "completed",
-      "createdAt": "2026-10-25T06:39:50.334Z",
-      "updatedAt": "2026-10-25T06:39:50.334Z"
+      "createdAt": "2026-10-25T07:37:24.224Z",
+      "updatedAt": "2026-10-25T07:37:24.225Z"
     },
-    "durationMs": 1
+    "durationMs": 0
   },
   {
     "id": "SUB-01",
@@ -539,22 +539,22 @@
     "testName": "Create Subscription Plan and Enroll Client",
     "status": "PASS",
     "expected": "Plan created, subscription initialized with nextRenewalDate",
-    "actual": "Sub ID: sub_active_1792910390335, Client: محمود الصاوي, Status: active, EndDate: 2026-11-24T06:39:50.335Z",
+    "actual": "Sub ID: sub_active_1792913844225, Client: محمود الصاوي, Status: active, EndDate: 2026-11-24T07:37:24.225Z",
     "evidence": {
-      "id": "sub_active_1792910390335",
+      "id": "sub_active_1792913844225",
       "clientName": "محمود الصاوي",
       "clientPhone": "01511223344",
-      "planId": "plan_vip_1792910390335",
+      "planId": "plan_vip_1792913844225",
       "planName": "باقة شحن VIP الشهرية للمحترفين",
       "amount": 999,
-      "startDate": "2026-10-25T06:39:50.335Z",
-      "endDate": "2026-11-24T06:39:50.335Z",
+      "startDate": "2026-10-25T07:37:24.225Z",
+      "endDate": "2026-11-24T07:37:24.225Z",
       "status": "active",
       "autoRenew": true,
-      "createdAt": "2026-10-25T06:39:50.335Z",
-      "updatedAt": "2026-10-25T06:39:50.335Z"
+      "createdAt": "2026-10-25T07:37:24.225Z",
+      "updatedAt": "2026-10-25T07:37:24.226Z"
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "SUB-02",
@@ -563,10 +563,10 @@
     "testName": "Renew Subscription by 1 Month and Extend End Date",
     "status": "PASS",
     "expected": "End date extended accurately by 1 month (~30 days)",
-    "actual": "Old End: 2026-11-24T06:39:50.335Z, New End: 2026-12-24T06:39:50.335Z, Diff Days: 30",
+    "actual": "Old End: 2026-11-24T07:37:24.225Z, New End: 2026-12-24T07:37:24.225Z, Diff Days: 30",
     "evidence": {
-      "oldEnd": "2026-11-24T06:39:50.335Z",
-      "newEnd": "2026-12-24T06:39:50.335Z",
+      "oldEnd": "2026-11-24T07:37:24.225Z",
+      "newEnd": "2026-12-24T07:37:24.225Z",
       "diffDays": 30
     },
     "durationMs": 1
@@ -594,8 +594,8 @@
     "expected": "Invoice recorded, increases supplier payable balance",
     "actual": "Invoice recorded. Remaining payable: 10000 EGP",
     "evidence": {
-      "id": "inv_merch_1792910390337",
-      "merchantId": "merch_test_1792910390336",
+      "id": "inv_merch_1792913844228",
+      "merchantId": "merch_test_1792913844227",
       "merchantName": "شركة الشروق للتجارة الرقمية",
       "invoiceNumber": "INV-SHQ-001",
       "type": "purchase",
@@ -610,11 +610,11 @@
           "amount": 15000
         }
       ],
-      "qrCodeData": "NZM_JKR_INV_INV-SHQ-001|merch_test_1792910390336|15000|partial",
-      "updatedAt": "2026-10-25T06:39:50.337Z",
-      "createdAt": "2026-10-25T06:39:50.337Z"
+      "qrCodeData": "NZM_JKR_INV_INV-SHQ-001|merch_test_1792913844227|15000|partial",
+      "updatedAt": "2026-10-25T07:37:24.228Z",
+      "createdAt": "2026-10-25T07:37:24.228Z"
     },
-    "durationMs": 2
+    "durationMs": 1
   },
   {
     "id": "MERCH-02",
@@ -625,8 +625,8 @@
     "expected": "Remaining amount becomes 0, status completed",
     "actual": "Updated invoice status: paid, Remaining: 0",
     "evidence": {
-      "id": "inv_merch_1792910390337",
-      "merchantId": "merch_test_1792910390336",
+      "id": "inv_merch_1792913844228",
+      "merchantId": "merch_test_1792913844227",
       "merchantName": "شركة الشروق للتجارة الرقمية",
       "invoiceNumber": "INV-SHQ-001",
       "type": "purchase",
@@ -641,11 +641,11 @@
           "amount": 15000
         }
       ],
-      "qrCodeData": "NZM_JKR_INV_INV-SHQ-001|merch_test_1792910390336|15000|paid",
-      "updatedAt": "2026-10-25T06:39:50.338Z",
-      "createdAt": "2026-10-25T06:39:50.337Z"
+      "qrCodeData": "NZM_JKR_INV_INV-SHQ-001|merch_test_1792913844227|15000|paid",
+      "updatedAt": "2026-10-25T07:37:24.229Z",
+      "createdAt": "2026-10-25T07:37:24.228Z"
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "COMP-01",
@@ -659,124 +659,124 @@
       "isEligible": true,
       "qualifyingTickets": [
         {
-          "id": "tkt_cmp_1_1792910390339",
+          "id": "tkt_cmp_1_1792913844229",
           "ticketNumber": "TKT-CMP-1",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_2_1792910390340",
+          "id": "tkt_cmp_2_1792913844231",
           "ticketNumber": "TKT-CMP-2",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_3_1792910390341",
+          "id": "tkt_cmp_3_1792913844233",
           "ticketNumber": "TKT-CMP-3",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_4_1792910390342",
+          "id": "tkt_cmp_4_1792913844234",
           "ticketNumber": "TKT-CMP-4",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_5_1792910390344",
+          "id": "tkt_cmp_5_1792913844236",
           "ticketNumber": "TKT-CMP-5",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_6_1792910390345",
+          "id": "tkt_cmp_6_1792913844237",
           "ticketNumber": "TKT-CMP-6",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_7_1792910390346",
+          "id": "tkt_cmp_7_1792913844238",
           "ticketNumber": "TKT-CMP-7",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_8_1792910390348",
+          "id": "tkt_cmp_8_1792913844240",
           "ticketNumber": "TKT-CMP-8",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_9_1792910390349",
+          "id": "tkt_cmp_9_1792913844241",
           "ticketNumber": "TKT-CMP-9",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         },
         {
-          "id": "tkt_cmp_10_1792910390350",
+          "id": "tkt_cmp_10_1792913844242",
           "ticketNumber": "TKT-CMP-10",
-          "customerId": "cust_comp_active_1792910390338",
+          "customerId": "cust_comp_active_1792913844229",
           "customerName": "بطل التحدي الأسبوعي",
           "totalAmount": 100,
           "paidAmount": 100,
           "receivedAmount": 100,
           "status": "completed",
           "isPaid": true,
-          "createdAt": "2026-10-25T06:39:50.338Z"
+          "createdAt": "2026-10-25T07:37:24.229Z"
         }
       ],
       "progressCount": 10,
@@ -793,7 +793,7 @@
         }
       ]
     },
-    "durationMs": 14
+    "durationMs": 15
   },
   {
     "id": "COMP-02",
@@ -807,7 +807,7 @@
       "res1": {
         "success": true,
         "reward": {
-          "id": "rew_atomic_1792910390352",
+          "id": "rew_atomic_1792913844244",
           "competitionId": "comp_sample",
           "competitionTitle": "مسابقة تجريبية",
           "prizeId": "prz_01",
@@ -817,21 +817,21 @@
           "currency": "EGP",
           "costEGP": 250,
           "entityType": "customer",
-          "entityId": "cust_comp_active_1792910390338",
+          "entityId": "cust_comp_active_1792913844229",
           "entityName": "بطل التحدي الأسبوعي",
           "status": "delivered",
-          "createdAt": "2026-10-25T06:39:50.352Z",
-          "deliveredAt": "2026-10-25T06:39:50.353Z",
+          "createdAt": "2026-10-25T07:37:24.244Z",
+          "deliveredAt": "2026-10-25T07:37:24.245Z",
           "deliveredBy": "المدير العام",
-          "financialExpenseId": "exp_1792910390353",
-          "customerTransactionId": "wtx_1792910390353",
+          "financialExpenseId": "exp_1792913844245",
+          "customerTransactionId": "wtx_1792913844245",
           "snapshot": {
-            "deliveryDate": "2026-10-25T06:39:50.353Z",
+            "deliveryDate": "2026-10-25T07:37:24.245Z",
             "adminName": "المدير العام"
           }
         },
-        "financialExpenseId": "exp_1792910390353",
-        "customerTransactionId": "wtx_1792910390353"
+        "financialExpenseId": "exp_1792913844245",
+        "customerTransactionId": "wtx_1792913844245"
       },
       "res2Error": "هذه الجائزة تم تسليمها واعتمادها مسبقاً، لا يمكن إعادة تسليمها مرة أخرى.",
       "balBefore": 0,
@@ -877,13 +877,13 @@
     "testName": "Apply Valid Coupon and Check Discount Deduction",
     "status": "PASS",
     "expected": "Applies discount percentage accurately according to coupon rules",
-    "actual": "Coupon DISC-AUD-112: Valid=true, Discount Amount=50 (expected 50)",
+    "actual": "Coupon DISC-AUD-473: Valid=true, Discount Amount=50 (expected 50)",
     "evidence": {
       "valid": true,
       "discountAmount": 50,
       "coupon": {
-        "id": "coup_1792910390354",
-        "code": "DISC-AUD-112",
+        "id": "coup_1792913844246",
+        "code": "DISC-AUD-473",
         "name": "كوبون تدقيق 10%",
         "title": "كوبون تدقيق 10%",
         "type": "general",
@@ -893,8 +893,8 @@
         "maxUsageTotal": 5,
         "currentUsageCount": 0,
         "isActive": true,
-        "expiryDate": "2026-11-24T06:39:50.354Z",
-        "createdAt": "2026-10-25T06:39:50.354Z",
+        "expiryDate": "2026-11-24T07:37:24.246Z",
+        "createdAt": "2026-10-25T07:37:24.246Z",
         "status": "active",
         "usageLog": []
       },
@@ -914,8 +914,8 @@
       "valid": false,
       "discountAmount": 0,
       "coupon": {
-        "id": "coup_1792910390354",
-        "code": "DISC-AUD-112",
+        "id": "coup_1792913844246",
+        "code": "DISC-AUD-473",
         "name": "كوبون تدقيق 10%",
         "title": "كوبون تدقيق 10%",
         "type": "general",
@@ -925,14 +925,14 @@
         "maxUsageTotal": 5,
         "currentUsageCount": 0,
         "isActive": true,
-        "expiryDate": "2026-11-24T06:39:50.354Z",
-        "createdAt": "2026-10-25T06:39:50.354Z",
+        "expiryDate": "2026-11-24T07:37:24.246Z",
+        "createdAt": "2026-10-25T07:37:24.246Z",
         "status": "active",
         "usageLog": []
       },
       "message": "قيمة المشتريات (50 ج) أقل من الحد الأدنى لتفعيل هذا الكوبون (100 ج)."
     },
-    "durationMs": 0
+    "durationMs": 1
   },
   {
     "id": "SEC-01",
@@ -957,7 +957,7 @@
     "expected": "Action logged with user ID, actionType, target entity, timestamp",
     "actual": "Audit logs count: 15, Last action: edit on settings",
     "evidence": {
-      "id": "log_1792910390355_or2q",
+      "id": "log_1792913844247_c6sq",
       "userId": "usr_aud",
       "userName": "مراجع الأمان",
       "userRole": "admin",
@@ -967,9 +967,9 @@
       "entityId": "set_pricing",
       "entityTitle": "تعديل أسعار الفئات",
       "details": "تم تعديل عمولة الشركاء إلى 2.5%",
-      "timestamp": "2026-10-25T06:39:50.355Z"
+      "timestamp": "2026-10-25T07:37:24.247Z"
     },
-    "durationMs": 1
+    "durationMs": 0
   },
   {
     "id": "EDGE-01",
@@ -1013,6 +1013,6 @@
     "expected": "Script payload does not execute or corrupt JSON storage",
     "actual": "Retrieved successfully: 66 chars stored",
     "evidence": "<script>alert(\"xss\")</script> & \"quotes\" 'apostrophes' <b>bold</b>",
-    "durationMs": 1
+    "durationMs": 0
   }
 ]

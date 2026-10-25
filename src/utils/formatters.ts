@@ -52,6 +52,38 @@ export const formatCurrency = (amount: number | undefined | null, forcedCurrency
   return `${formattedNum} ج.م`;
 };
 
+export const isStoreWalletTxPositive = (t: {
+  type?: string;
+  amount?: number;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  description?: string;
+}): boolean => {
+  if (!t || !t.type) return (t?.amount || 0) >= 0;
+  if (t.type === 'deposit' || t.type === 'transfer_in' || t.type === 'bond_deposit' || t.type === 'compensation') {
+    return true;
+  }
+  if (t.type === 'withdrawal' || t.type === 'transfer_out' || t.type === 'purchase' || t.type === 'loss' || t.type === 'fee' || t.type === 'refund') {
+    return false;
+  }
+  if (t.type === 'cashback') {
+    if (t.balanceAfter !== undefined && t.balanceBefore !== undefined) {
+      return t.balanceAfter >= t.balanceBefore;
+    }
+    if (t.description && (t.description.includes('خصم') || t.description.includes('استبدال') || t.description.includes('صرف'))) {
+      return false;
+    }
+    return true;
+  }
+  if (t.type === 'adjustment') {
+    if (t.balanceAfter !== undefined && t.balanceBefore !== undefined) {
+      return t.balanceAfter >= t.balanceBefore;
+    }
+    return (t.amount || 0) >= 0;
+  }
+  return (t.amount || 0) >= 0;
+};
+
 export const formatDate = (dateStr: string | undefined | null): string => {
   if (!dateStr) return '—';
   try {
