@@ -393,9 +393,9 @@ export const CustomerFinanceVaultsTab: React.FC = () => {
       }
     }
 
-    // Accurate period profits calculation from active tickets (retail)
+    // Accurate period profits calculation from active tickets (retail) - realized on completed tickets only
     const activeRetailTickets = allTickets.filter(t => {
-      if (t.status === 'canceled' || t.status === 'refunded') return false;
+      if (t.status !== 'completed') return false;
       const tDate = t.createdAt || t.updatedAt || '';
       if (from && tDate < from) return false;
       if (to && tDate > to) return false;
@@ -805,7 +805,7 @@ export const CustomerFinanceVaultsTab: React.FC = () => {
               const to = calendarFilter.dateTo ? calendarFilter.dateTo + 'T23:59:59' : '';
               if (isProfits) {
                 const activeT = allTickets.filter(t => {
-                  if (t.status === 'canceled' || t.status === 'refunded') return false;
+                  if (t.status !== 'completed') return false;
                   const tDate = t.createdAt || t.updatedAt || '';
                   if (from && tDate < from) return false;
                   if (to && tDate > to) return false;

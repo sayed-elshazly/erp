@@ -1054,7 +1054,7 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
 
     const totalRevenue = filteredTickets.reduce((sum, t) => sum + (t.receivedAmount || t.requiredAmount || 0), 0);
     const totalCost = filteredTickets.reduce((sum, t) => sum + (t.totalCostAmount || 0), 0);
-    const totalProfit = filteredTickets.reduce((sum, t) => sum + (t.totalProfitMargin || 0), 0);
+    const totalProfit = filteredTickets.filter(t => t.status === 'completed').reduce((sum, t) => sum + (t.totalProfitMargin || 0), 0);
     const totalCashbackGiven = filteredTickets.reduce((sum, t) => sum + (t.cashbackEarned || 0), 0);
     const totalReferralGiven = filteredTickets.reduce((sum, t) => sum + (t.referralBalanceUsed || 0), 0);
 

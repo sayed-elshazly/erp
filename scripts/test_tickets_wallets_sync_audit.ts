@@ -389,6 +389,7 @@ async function main() {
   // Test 6: Dealer Ticket Isolation & mw_* Wallets Sync
   // -------------------------------------------------------------
   await test('Dealer Ticket operations route to mw_* wallets and update dealer profile exclusively', async () => {
+    const initialMwBal = db.getDealerWallets().find(w => w.id === 'mw_cashback')?.balance || 0;
     const dealerId = 'dealer_sync_' + Date.now();
     db.saveDealer({
       id: dealerId,
@@ -437,7 +438,7 @@ async function main() {
 
     const dealerWallets = db.getDealerWallets();
     const mwCashback = dealerWallets.find(w => w.id === 'mw_cashback')!;
-    assert(mwCashback.balance === 80, `mw_cashback should reflect 80, got ${mwCashback.balance}`);
+    assert(mwCashback.balance === initialMwBal + 80, `mw_cashback should reflect ${initialMwBal + 80}, got ${mwCashback.balance}`);
   });
 
   console.log('\n========================================================================');

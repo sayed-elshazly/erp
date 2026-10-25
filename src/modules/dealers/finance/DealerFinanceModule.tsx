@@ -111,9 +111,15 @@ export const DealerFinanceModule: React.FC = () => {
     .filter(d => d.debtType === 'payable')
     .reduce((sum, d) => sum + d.remainingAmount, 0);
 
-  const totalDebtsReceivable = debts
-    .filter(d => d.debtType === 'receivable')
-    .reduce((sum, d) => sum + d.remainingAmount, 0);
+  const dealerShortages = dealers
+    .filter(d => (Number(d.accountBalance) || 0) < 0)
+    .reduce((sum, d) => sum + Math.abs(Number(d.accountBalance) || 0), 0);
+
+  const totalDebtsReceivable = Math.round((
+    debts
+      .filter(d => d.debtType === 'receivable')
+      .reduce((sum, d) => sum + d.remainingAmount, 0) + dealerShortages
+  ) * 100) / 100;
 
   // 9. Total Expenses this month
   const totalMonthlyExpenses = expenses

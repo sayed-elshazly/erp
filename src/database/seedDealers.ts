@@ -3,6 +3,7 @@
 // =============================================================
 
 import { Dealer, DealerNote, DealerReferral, DealerModuleSettings } from '../types/dealer.types';
+import { UnifiedWalletTransaction } from '../types/customer.types';
 
 export const initialDealerModuleSettings: DealerModuleSettings = {
   defaultCurrencyDisplay: 'EGP',
@@ -363,5 +364,179 @@ export const initialDealerReferrals: DealerReferral[] = [
     totalSpentByReferred: 16400.0,
     lastOrderAt: '2026-08-28T18:00:00Z',
     status: 'graduated'
+  }
+];
+
+export const initialDealerTransactions: UnifiedWalletTransaction[] = [
+  // dlr_1 (مؤسسة الأندلس)
+  {
+    id: 'dtx_dlr1_cb_init',
+    customerId: 'dlr_1',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك مرحل وافتتاحي للتاجر',
+    amount: 420.0,
+    balanceAfter: 420.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr1_ref_init',
+    customerId: 'dlr_1',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة تجار مرحلة وافتتاحية',
+    amount: 1250.0,
+    balanceAfter: 1250.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr1_acc_init',
+    customerId: 'dlr_1',
+    walletType: 'account_balance',
+    type: 'credit',
+    operationName: 'رصيد دائن مرحل للتاجر',
+    amount: 1500.0,
+    balanceAfter: 1500.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // dlr_2 (متجر بلاي زون)
+  {
+    id: 'dtx_dlr2_cb_init',
+    customerId: 'dlr_2',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك مستحق للتاجر',
+    amount: 190.0,
+    balanceAfter: 190.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr2_ref_init',
+    customerId: 'dlr_2',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة شبكة الموزعين',
+    amount: 340.0,
+    balanceAfter: 340.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr2_acc_init',
+    customerId: 'dlr_2',
+    walletType: 'account_balance',
+    type: 'debit',
+    operationName: 'عجز سداد سابق مسجل على حساب التاجر',
+    amount: 250.0,
+    balanceAfter: -250.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // dlr_3 (وكالة القمة للشحن المباشر)
+  {
+    id: 'dtx_dlr3_cb_init',
+    customerId: 'dlr_3',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك تجاري مرحل',
+    amount: 310.0,
+    balanceAfter: 310.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr3_ref_init',
+    customerId: 'dlr_3',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة تجار مرحلة',
+    amount: 820.0,
+    balanceAfter: 820.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // dlr_4 (كشك النجوم)
+  {
+    id: 'dtx_dlr4_cb_init',
+    customerId: 'dlr_4',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك نقاط البيع',
+    amount: 65.0,
+    balanceAfter: 65.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr4_ref_init',
+    customerId: 'dlr_4',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة نقطة بيع',
+    amount: 110.0,
+    balanceAfter: 110.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr4_acc_init',
+    customerId: 'dlr_4',
+    walletType: 'account_balance',
+    type: 'credit',
+    operationName: 'رصيد دائن مرحل للتاجر',
+    amount: 120.0,
+    balanceAfter: 120.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // dlr_5 (مكتب الهلال)
+  {
+    id: 'dtx_dlr5_cb_init',
+    customerId: 'dlr_5',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك كبار الموزعين',
+    amount: 880.0,
+    balanceAfter: 880.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr5_ref_init',
+    customerId: 'dlr_5',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة وتوزيع إقليمي',
+    amount: 2100.0,
+    balanceAfter: 2100.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr5_acc_init',
+    customerId: 'dlr_5',
+    walletType: 'account_balance',
+    type: 'credit',
+    operationName: 'أمانات ورصيد دائن مرحل للتاجر',
+    amount: 3200.0,
+    balanceAfter: 3200.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // dlr_6 (تاجر التوفير)
+  {
+    id: 'dtx_dlr6_cb_init',
+    customerId: 'dlr_6',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك تجزئة',
+    amount: 30.0,
+    balanceAfter: 30.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'dtx_dlr6_ref_init',
+    customerId: 'dlr_6',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة تجزئة',
+    amount: 40.0,
+    balanceAfter: 40.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
   }
 ];

@@ -321,9 +321,9 @@ export const DealerFinanceVaultsTab: React.FC = () => {
       }
     }
 
-    // Accurate calculation of period profits directly from active dealer tickets
+    // Accurate calculation of period profits directly from active dealer tickets - realized on completed tickets only
     const activeDealerTickets = dealerTickets.filter(t => {
-      if (t.status === 'canceled' || t.status === 'refunded') return false;
+      if (t.status !== 'completed') return false;
       const tDate = t.createdAt || t.updatedAt || '';
       if (from && tDate < from) return false;
       if (to && tDate > to) return false;
@@ -773,7 +773,7 @@ export const DealerFinanceVaultsTab: React.FC = () => {
               const to = calendarFilter.dateTo ? calendarFilter.dateTo + 'T23:59:59' : '';
               if (isProfits) {
                 const activeT = dealerTickets.filter(t => {
-                  if (t.status === 'canceled' || t.status === 'refunded') return false;
+                  if (t.status !== 'completed') return false;
                   const tDate = t.createdAt || t.updatedAt || '';
                   if (from && tDate < from) return false;
                   if (to && tDate > to) return false;

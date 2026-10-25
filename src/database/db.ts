@@ -57,7 +57,8 @@ import {
   initialDealerModuleSettings,
   initialDealers,
   initialDealerNotes,
-  initialDealerReferrals
+  initialDealerReferrals,
+  initialDealerTransactions
 } from './seedDealers';
 import {
   Dealer,
@@ -421,6 +422,7 @@ class LocalDatabase {
       this.setItem(STORAGE_KEYS.DEALER_NOTES, initialDealerNotes);
       this.setItem(STORAGE_KEYS.DEALER_REFERRALS, initialDealerReferrals);
       this.setItem(STORAGE_KEYS.DEALER_MODULE_SETTINGS, initialDealerModuleSettings);
+      this.setItem(STORAGE_KEYS.DEALER_TRANSACTIONS, initialDealerTransactions);
     }
 
     // Initialize Dealers Finance Isolated Seeds
@@ -650,7 +652,10 @@ class LocalDatabase {
           c.totalReferralCommissionEarned = totalEarned;
           mutated = true;
         }
-      } else if ((c.referralWalletBalance || 0) !== 0 || (c.totalReferralCommissionEarned || 0) !== 0) {
+      } else if (
+        allUnifiedTxs.some(t => t.customerId === c.id && t.walletType === 'referral') &&
+        ((c.referralWalletBalance || 0) !== 0 || (c.totalReferralCommissionEarned || 0) !== 0)
+      ) {
         c.referralWalletBalance = 0;
         c.totalReferralCommissionEarned = 0;
         mutated = true;
@@ -660,7 +665,7 @@ class LocalDatabase {
       const custCbTxs = validUnifiedTxs.filter(t => t.customerId === c.id && t.walletType === 'cashback');
       if (custCbTxs.length > 0) {
         const calculatedCbBalance = Math.max(0, Math.round(custCbTxs.reduce((sum, tx) => {
-          if (tx.type === 'earned' || tx.type === 'credit') {
+          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0)) {
             return sum + (Number(tx.amount) || 0);
           } else {
             return sum - (Number(tx.amount) || 0);
@@ -668,7 +673,7 @@ class LocalDatabase {
         }, 0) * 100) / 100);
 
         const totalCbEarned = Math.round(custCbTxs
-          .filter(tx => tx.type === 'earned' || tx.type === 'credit')
+          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0))
           .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0) * 100) / 100;
 
         if (c.cashbackBalance !== calculatedCbBalance || c.totalCashbackEarned !== totalCbEarned) {
@@ -676,7 +681,10 @@ class LocalDatabase {
           c.totalCashbackEarned = totalCbEarned;
           mutated = true;
         }
-      } else if ((c.cashbackBalance || 0) !== 0 || (c.totalCashbackEarned || 0) !== 0) {
+      } else if (
+        allUnifiedTxs.some(t => t.customerId === c.id && t.walletType === 'cashback') &&
+        ((c.cashbackBalance || 0) !== 0 || (c.totalCashbackEarned || 0) !== 0)
+      ) {
         c.cashbackBalance = 0;
         c.totalCashbackEarned = 0;
         mutated = true;
@@ -3974,7 +3982,7 @@ class LocalDatabase {
 
   public getDealers(includeArchived = false): Dealer[] {
     const all = this.getItem<Dealer[]>(STORAGE_KEYS.DEALERS, initialDealers);
-    const allDealerTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.DEALER_TRANSACTIONS, []);
+    const allDealerTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.DEALER_TRANSACTIONS, initialDealerTransactions);
     const allTickets = this.getItem<CustomerTicket[]>(STORAGE_KEYS.TICKETS, initialTickets);
     const dealerTickets = this.getItem<CustomerTicket[]>(STORAGE_KEYS.DEALER_TICKETS, []);
 
@@ -4024,7 +4032,10 @@ class LocalDatabase {
           d.totalReferralCommissionEarned = totalEarned;
           mutated = true;
         }
-      } else if ((d.referralWalletBalance || 0) !== 0 || (d.totalReferralCommissionEarned || 0) !== 0) {
+      } else if (
+        allDealerTxs.some(t => t.customerId === d.id && t.walletType === 'referral') &&
+        ((d.referralWalletBalance || 0) !== 0 || (d.totalReferralCommissionEarned || 0) !== 0)
+      ) {
         d.referralWalletBalance = 0;
         d.totalReferralCommissionEarned = 0;
         mutated = true;
@@ -4034,7 +4045,7 @@ class LocalDatabase {
       const dealerCbTxs = validDealerTxs.filter(t => t.customerId === d.id && t.walletType === 'cashback');
       if (dealerCbTxs.length > 0) {
         const calculatedCbBalance = Math.max(0, Math.round(dealerCbTxs.reduce((sum, tx) => {
-          if (tx.type === 'earned' || tx.type === 'credit') {
+          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0)) {
             return sum + (Number(tx.amount) || 0);
           } else {
             return sum - (Number(tx.amount) || 0);
@@ -4042,7 +4053,7 @@ class LocalDatabase {
         }, 0) * 100) / 100);
 
         const totalCbEarned = Math.round(dealerCbTxs
-          .filter(tx => tx.type === 'earned' || tx.type === 'credit')
+          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0))
           .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0) * 100) / 100;
 
         if (d.cashbackBalance !== calculatedCbBalance || d.totalCashbackEarned !== totalCbEarned) {
@@ -4050,7 +4061,10 @@ class LocalDatabase {
           d.totalCashbackEarned = totalCbEarned;
           mutated = true;
         }
-      } else if ((d.cashbackBalance || 0) !== 0 || (d.totalCashbackEarned || 0) !== 0) {
+      } else if (
+        allDealerTxs.some(t => t.customerId === d.id && t.walletType === 'cashback') &&
+        ((d.cashbackBalance || 0) !== 0 || (d.totalCashbackEarned || 0) !== 0)
+      ) {
         d.cashbackBalance = 0;
         d.totalCashbackEarned = 0;
         mutated = true;
@@ -6678,7 +6692,9 @@ class LocalDatabase {
         systemType: 'cashback',
         isSystemWallet: true,
         currency: 'EGP',
-        balance: 0,
+        balance: 1895,
+        totalReceived: 4430,
+        totalWithdrawn: 2535,
         controlledBy: 'owner',
         allowWithdrawal: true,
         status: 'active',
@@ -6694,7 +6710,9 @@ class LocalDatabase {
         systemType: 'referrals',
         isSystemWallet: true,
         currency: 'EGP',
-        balance: 0,
+        balance: 4660,
+        totalReceived: 10670,
+        totalWithdrawn: 6010,
         controlledBy: 'owner',
         allowWithdrawal: true,
         status: 'active',
@@ -6710,7 +6728,8 @@ class LocalDatabase {
         systemType: 'trust',
         isSystemWallet: true,
         currency: 'EGP',
-        balance: 0,
+        balance: 4570,
+        totalReceived: 4570,
         controlledBy: 'owner',
         allowWithdrawal: true,
         status: 'active',
@@ -10209,27 +10228,23 @@ class LocalDatabase {
       }
     }
 
-    // Dynamic Live Sync: Match Cashback System Wallet (w_cashback) with actual customer accounts
+    // Dynamic Live Sync: Retail Customer System Wallets (w_cashback, w_referrals, w_profits, w_trust)
     try {
+      const allCust = this.getCustomers();
+      const allTickets = this.getItem<CustomerTicket[]>(STORAGE_KEYS.TICKETS, initialTickets);
+
+      // 1. w_cashback (Retail Only - strictly isolated from dealers per GEMINI.md)
       const cbWallet = wallets.find(w => w.id === 'w_cashback' || w.systemType === 'cashback');
       if (cbWallet) {
-        const allCust = this.getCustomers();
-        const allDealers = this.getDealers();
         const totalCustBalance = allCust.reduce((sum, c) => sum + (Number(c.cashbackBalance) || 0), 0);
-        const totalDealerBalance = allDealers.reduce((sum, d) => sum + (Number(d.cashbackBalance) || 0), 0);
-        const totalCbBalance = Math.round((totalCustBalance + totalDealerBalance) * 100) / 100;
+        const totalCbBalance = Math.round(totalCustBalance * 100) / 100;
 
         const totalCustEarned = allCust.reduce((sum, c) => {
           const earned = Number(c.totalCashbackEarned) || 0;
           const current = Number(c.cashbackBalance) || 0;
           return sum + Math.max(earned, current);
         }, 0);
-        const totalDealerEarned = allDealers.reduce((sum, d) => {
-          const earned = Number(d.totalCashbackEarned) || 0;
-          const current = Number(d.cashbackBalance) || 0;
-          return sum + Math.max(earned, current);
-        }, 0);
-        const totalGranted = Math.round((totalCustEarned + totalDealerEarned) * 100) / 100;
+        const totalGranted = Math.round(totalCustEarned * 100) / 100;
         const totalRedeemed = Math.max(0, Math.round((totalGranted - totalCbBalance) * 100) / 100);
 
         if (
@@ -10245,8 +10260,62 @@ class LocalDatabase {
           modified = true;
         }
       }
+
+      // 2. w_referrals (Retail Only)
+      const refWallet = wallets.find(w => w.id === 'w_referrals' || w.systemType === 'referrals');
+      if (refWallet) {
+        const totalCustRef = Math.round(allCust.reduce((sum, c) => sum + (Number(c.referralWalletBalance) || 0), 0) * 100) / 100;
+        const totalCustRefEarned = Math.round(allCust.reduce((sum, c) => {
+          const earned = Number(c.totalReferralCommissionEarned) || 0;
+          const current = Number(c.referralWalletBalance) || 0;
+          return sum + Math.max(earned, current);
+        }, 0) * 100) / 100;
+        const totalRefRedeemed = Math.max(0, Math.round((totalCustRefEarned - totalCustRef) * 100) / 100);
+
+        if (
+          refWallet.balance !== totalCustRef ||
+          refWallet.totalReceived !== totalCustRefEarned ||
+          refWallet.totalWithdrawn !== totalRefRedeemed
+        ) {
+          refWallet.balance = totalCustRef;
+          refWallet.totalReceived = totalCustRefEarned;
+          refWallet.monthlyIncome = totalCustRefEarned;
+          refWallet.totalWithdrawn = totalRefRedeemed;
+          refWallet.monthlyWithdrawn = totalRefRedeemed;
+          modified = true;
+        }
+      }
+
+      // 3. w_profits (Retail Completed Tickets Only)
+      const profitsWallet = wallets.find(w => w.id === 'w_profits' || w.systemType === 'profits' || w.type === 'profits');
+      if (profitsWallet) {
+        const retailCompletedTickets = allTickets.filter(t => t.status === 'completed');
+        const totalRetailProfit = Math.max(0, Math.round(
+          retailCompletedTickets.reduce((sum, t) => sum + (Number(t.netProfit !== undefined ? t.netProfit : t.totalProfitMargin) || 0), 0) * 100
+        ) / 100);
+        if (profitsWallet.balance !== totalRetailProfit || profitsWallet.totalReceived !== totalRetailProfit) {
+          profitsWallet.balance = totalRetailProfit;
+          profitsWallet.totalReceived = totalRetailProfit;
+          profitsWallet.monthlyIncome = totalRetailProfit;
+          modified = true;
+        }
+      }
+
+      // 4. w_trust (Retail Customer Net Account Balances + Pending Reservations)
+      const trustWallet = wallets.find(w => w.id === 'w_trust' || w.systemType === 'trust');
+      if (trustWallet) {
+        const totalCustNetBalance = allCust.reduce((sum, c) => sum + (Number(c.accountBalance) || 0), 0);
+        const retailPendingReservations = allTickets.filter(t => (t.isReservation || t.operationMode === 'reservation') && t.status !== 'completed' && t.status !== 'canceled' && t.status !== 'refunded');
+        const totalRetailReservationHeld = retailPendingReservations.reduce((sum, t) => sum + (Number(t.reservationTrustHeld !== undefined ? t.reservationTrustHeld : t.receivedAmount || t.requiredAmount || 0)), 0);
+        const totalRetailTrust = Math.max(0, Math.round((totalCustNetBalance + totalRetailReservationHeld) * 100) / 100);
+        if (trustWallet.balance !== totalRetailTrust || trustWallet.totalReceived !== totalRetailTrust) {
+          trustWallet.balance = totalRetailTrust;
+          trustWallet.totalReceived = totalRetailTrust;
+          modified = true;
+        }
+      }
     } catch (err) {
-      console.warn('Error syncing cashback system wallet with customer accounts:', err);
+      console.warn('Error syncing retail system wallets with customer accounts:', err);
     }
 
     // Dynamic Live Sync: Sync Operating Expenses System Wallet (w_operating_expenses) with total tickets fixed costs
@@ -11996,15 +12065,15 @@ class LocalDatabase {
     const totalReferralsBalance = Math.max(0, Math.round((totalCustRef + totalDealerRef) * 100) / 100);
 
     // 5. Trust & Overpayments & Reservation Escrow (w_trust & mw_debts)
-    const totalCustOverpayment = customers.reduce((sum, c) => sum + Math.max(0, Number(c.accountBalance) || 0), 0);
+    const totalCustNetBalance = customers.reduce((sum, c) => sum + (Number(c.accountBalance) || 0), 0);
     const retailPendingReservations = tickets.filter(t => (t.isReservation || t.operationMode === 'reservation') && t.status !== 'completed' && t.status !== 'canceled' && t.status !== 'refunded');
     const totalRetailReservationHeld = retailPendingReservations.reduce((sum, t) => sum + (Number(t.reservationTrustHeld !== undefined ? t.reservationTrustHeld : t.receivedAmount || t.requiredAmount || 0)), 0);
-    const totalRetailTrust = Math.max(0, Math.round((totalCustOverpayment + totalRetailReservationHeld) * 100) / 100);
+    const totalRetailTrust = Math.max(0, Math.round((totalCustNetBalance + totalRetailReservationHeld) * 100) / 100);
 
-    const totalDealerOverpayment = dealers.reduce((sum, d) => sum + Math.max(0, Number(d.accountBalance) || 0), 0);
+    const totalDealerNetBalance = dealers.reduce((sum, d) => sum + (Number(d.accountBalance) || 0), 0);
     const dealerPendingReservations = dealerTickets.filter(t => (t.isReservation || t.operationMode === 'reservation') && t.status !== 'completed' && t.status !== 'canceled' && t.status !== 'refunded');
     const totalDealerReservationHeld = dealerPendingReservations.reduce((sum, t) => sum + (Number(t.reservationTrustHeld !== undefined ? t.reservationTrustHeld : t.receivedAmount || t.requiredAmount || 0)), 0);
-    const totalDealerTrust = Math.max(0, Math.round((totalDealerOverpayment + totalDealerReservationHeld) * 100) / 100);
+    const totalDealerTrust = Math.max(0, Math.round((totalDealerNetBalance + totalDealerReservationHeld) * 100) / 100);
 
     const totalTrustBalance = Math.max(0, Math.round((totalRetailTrust + totalDealerTrust) * 100) / 100);
 

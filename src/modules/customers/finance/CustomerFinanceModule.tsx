@@ -122,9 +122,15 @@ export const CustomerFinanceModule: React.FC = () => {
     .filter(d => d.debtType === 'payable')
     .reduce((sum, d) => sum + d.remainingAmount, 0);
 
-  const totalDebtsReceivable = debts
-    .filter(d => d.debtType === 'receivable')
-    .reduce((sum, d) => sum + d.remainingAmount, 0);
+  const customerShortages = customers
+    .filter(c => (Number(c.accountBalance) || 0) < 0)
+    .reduce((sum, c) => sum + Math.abs(Number(c.accountBalance) || 0), 0);
+
+  const totalDebtsReceivable = Math.round((
+    debts
+      .filter(d => d.debtType === 'receivable')
+      .reduce((sum, d) => sum + d.remainingAmount, 0) + customerShortages
+  ) * 100) / 100;
 
   // 9. Total Expenses this month
   const totalMonthlyExpenses = expenses

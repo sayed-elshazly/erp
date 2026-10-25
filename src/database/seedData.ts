@@ -445,6 +445,17 @@ export const initialReferrals: CustomerReferral[] = [
 ];
 
 export const initialUnifiedWalletTransactions: UnifiedWalletTransaction[] = [
+  // Cust 1 (حسين علي الركابي)
+  {
+    id: 'wtx_cust1_cb_init',
+    customerId: 'cust_1',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك مرحل وافتتاحي',
+    amount: 21.5,
+    balanceAfter: 21.5,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
   {
     id: 'wtx_1',
     customerId: 'cust_1',
@@ -455,6 +466,16 @@ export const initialUnifiedWalletTransactions: UnifiedWalletTransaction[] = [
     balanceAfter: 25.0,
     orderNumber: 'JKR-2026-0001',
     createdAt: '2026-08-28T11:05:00.000Z'
+  },
+  {
+    id: 'wtx_cust1_ref_init',
+    customerId: 'cust_1',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة مرحلة وافتتاحية',
+    amount: 40.5,
+    balanceAfter: 40.5,
+    createdAt: '2026-08-20T10:00:00.000Z'
   },
   {
     id: 'wtx_2',
@@ -476,6 +497,94 @@ export const initialUnifiedWalletTransactions: UnifiedWalletTransaction[] = [
     amount: 50.0,
     balanceAfter: 50.0,
     createdAt: '2026-08-27T10:00:00.000Z'
+  },
+
+  // Cust 2 (أحمد ممدوح الشريف)
+  {
+    id: 'wtx_cust2_cb_init',
+    customerId: 'cust_2',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك تراكمي مستحق',
+    amount: 60.0,
+    balanceAfter: 60.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'wtx_cust2_ref_init',
+    customerId: 'cust_2',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات شركاء النجاح والإحالات',
+    amount: 130.0,
+    balanceAfter: 130.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // Cust 3 (متجر دريم للاتصالات)
+  {
+    id: 'wtx_cust3_cb_init',
+    customerId: 'cust_3',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك محلات وتجاري مرحل',
+    amount: 110.0,
+    balanceAfter: 110.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'wtx_cust3_ref_init',
+    customerId: 'cust_3',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة وتسويق تجاري',
+    amount: 85.0,
+    balanceAfter: 85.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'wtx_cust3_acc_init',
+    customerId: 'cust_3',
+    walletType: 'account_balance',
+    type: 'debit',
+    operationName: 'عجز سداد سابق مسجل على حساب المحل',
+    amount: 20.0,
+    balanceAfter: -20.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // Cust 4 (سالي اليوتيوبر)
+  {
+    id: 'wtx_cust4_cb_init',
+    customerId: 'cust_4',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك صناع المحتوى',
+    amount: 40.0,
+    balanceAfter: 40.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+  {
+    id: 'wtx_cust4_ref_init',
+    customerId: 'cust_4',
+    walletType: 'referral',
+    type: 'commission',
+    operationName: 'عمولات إحالة حملة التيك توك',
+    amount: 650.0,
+    balanceAfter: 650.0,
+    createdAt: '2026-08-20T10:00:00.000Z'
+  },
+
+  // Cust 5 (كريم وائل المنصوري)
+  {
+    id: 'wtx_cust5_cb_init',
+    customerId: 'cust_5',
+    walletType: 'cashback',
+    type: 'earned',
+    operationName: 'رصيد كاش باك ترحيبي',
+    amount: 5.0,
+    balanceAfter: 5.0,
+    createdAt: '2026-08-25T10:00:00.000Z'
   }
 ];
 
