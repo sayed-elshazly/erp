@@ -1406,12 +1406,7 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
         const p = g?.products.find(prod => prod.id === item.productId || prod.name === item.productName);
         if (!p) return item;
 
-        const unitPrice =
-          ticketType === 'first_shipping'
-            ? p.firstOrderCostPriceEGP
-            : isDealer
-              ? (p.dealerPriceEGP || p.calculatedPriceEGP)
-              : p.calculatedPriceEGP;
+        const unitPrice = PricingEngine.getEffectiveProductPrice(p, { isDealer, ticketType });
 
         const pts = p.pointsCostPerUnit || 0;
         const walletId = p.primaryWalletId || p.walletTypeId;
@@ -1569,12 +1564,7 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
     const walletId = p.primaryWalletId || p.walletTypeId;
 
     // Wholesale Dealer Pricing vs Regular Customer Pricing vs First Order Cost
-    const unitPrice =
-      ticketType === 'first_shipping'
-        ? p.firstOrderCostPriceEGP
-        : isDealer
-          ? (p.dealerPriceEGP || p.calculatedPriceEGP)
-          : p.calculatedPriceEGP;
+    const unitPrice = PricingEngine.getEffectiveProductPrice(p, { isDealer, ticketType });
 
     let costPrice = p.costPriceEGP || 0;
 
@@ -4813,7 +4803,7 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
                     ).map(p => {
                       const avail = db.checkProductAvailability(p, 1);
                       const isAvail = avail.isAvailable && p.isActive !== false;
-                      const price = ticketType === 'first_shipping' ? p.firstOrderCostPriceEGP : isDealer ? (p.dealerPriceEGP || p.calculatedPriceEGP) : p.calculatedPriceEGP;
+                      const price = PricingEngine.getEffectiveProductPrice(p, { isDealer, ticketType });
                       return {
                         value: p.id,
                         label: `${isAvail ? '' : '⛔ '}${p.name} (${price} ج)${isAvail ? '' : ' — [غير متاح حالياً]'}`,
@@ -4910,11 +4900,11 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
               {currentSelectedProduct && (
                 <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-600 dark:text-orange-400 font-semibold">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span>سعر الوحدة: <strong className="font-mono text-zinc-900 dark:text-white font-bold">{ticketType === 'first_shipping' ? currentSelectedProduct.firstOrderCostPriceEGP : isDealer ? (currentSelectedProduct.dealerPriceEGP || currentSelectedProduct.calculatedPriceEGP) : currentSelectedProduct.calculatedPriceEGP} ج</strong></span>
+                    <span>سعر الوحدة: <strong className="font-mono text-zinc-900 dark:text-white font-bold">{PricingEngine.getEffectiveProductPrice(currentSelectedProduct, { isDealer, ticketType })} ج</strong></span>
                     <span>×</span>
                     <span>الكمية: <strong className="font-mono text-zinc-900 dark:text-white font-bold">{Math.max(1, lineQuantity)}</strong></span>
                     <span>=</span>
-                    <span>الإجمالي: <strong className="font-mono text-orange-500 font-bold text-sm">{(ticketType === 'first_shipping' ? currentSelectedProduct.firstOrderCostPriceEGP : isDealer ? (currentSelectedProduct.dealerPriceEGP || currentSelectedProduct.calculatedPriceEGP) : currentSelectedProduct.calculatedPriceEGP) * Math.max(1, lineQuantity)} ج</strong></span>
+                    <span>الإجمالي: <strong className="font-mono text-orange-500 font-bold text-sm">{PricingEngine.getEffectiveProductPrice(currentSelectedProduct, { isDealer, ticketType }) * Math.max(1, lineQuantity)} ج</strong></span>
                   </div>
                   <span className="text-[11px] text-zinc-400">سيتم تجميع كافة الباقات وتحديث الربح والكاش باك والخزينة تلقائياً</span>
                 </div>

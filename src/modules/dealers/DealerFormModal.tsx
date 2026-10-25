@@ -19,7 +19,8 @@ import {
   Percent,
   TrendingUp,
   CreditCard,
-  Wallet
+  Wallet,
+  Lock
 } from 'lucide-react';
 import { normalizePhoneNumber, isValidPhoneNumber, cleanPhoneInput } from '../../utils/phoneUtils';
 
@@ -605,20 +606,26 @@ export const DealerFormModal: React.FC<DealerFormModalProps> = ({
                   </p>
                 </div>
 
-                {/* 2. Cashback Wallet */}
-                <div className="p-2.5 rounded-xl bg-white dark:bg-[#18181B] border border-emerald-500/30 space-y-1.5">
-                  <label className="text-[11px] font-bold text-emerald-500 block">كاش باك تاجر الجملة (ج.م)</label>
+                {/* 2. Cashback Wallet - Isolated & System Protected */}
+                <div className="p-2.5 rounded-xl bg-gray-50 dark:bg-[#141417] border border-emerald-500/20 space-y-1.5 opacity-90">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-emerald-500 flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-emerald-500" />
+                      كاش باك تاجر الجملة (محمي آلياً)
+                    </label>
+                    <span className="text-[9px] bg-emerald-500/10 text-emerald-500 font-bold px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      نظام آلي
+                    </span>
+                  </div>
                   <input
                     type="number"
-                    step="0.01"
-                    min="0"
+                    readOnly
+                    disabled
                     value={formData.cashbackBalance ?? 0}
-                    onChange={e => handleChange('cashbackBalance', Math.max(0, parseFloat(e.target.value) || 0))}
-                    placeholder="0.00"
-                    className="w-full rounded-lg bg-gray-50 dark:bg-[#141417] border border-emerald-500/30 p-2 font-mono font-bold text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-emerald-500"
+                    className="w-full rounded-lg bg-gray-100 dark:bg-[#1f1f23] border border-gray-200 dark:border-[#2a2a30] p-2 font-mono font-bold text-xs text-zinc-500 cursor-not-allowed outline-none"
                   />
                   <p className="text-[10px] text-zinc-400 leading-tight">
-                    رصيد كاش باك وحوافز التاجر المكتسب.
+                    🔒 محفظة نظام آلية محمية (mw_cashback) — تُدار عبر تذاكر التحويل الرسمية لمنع التلاعب المالي.
                   </p>
                 </div>
 

@@ -63,6 +63,7 @@ import { TicketDetailsModal } from '../tickets/TicketDetailsModal';
 import { BalanceWithdrawal } from '../../types/finance.types';
 import { NewWithdrawalTicketModal } from '../../components/finance/NewWithdrawalTicketModal';
 import { WithdrawalInvoiceModal } from '../../components/finance/WithdrawalInvoiceModal';
+import { CustomerCashbackTransferModal } from '../customers/CustomerCashbackTransferModal';
 
 interface DealerProfileModalProps {
   isOpen: boolean;
@@ -96,6 +97,7 @@ const DealerProfileModalContent: React.FC<DealerProfileModalContentProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'tickets' | 'wallet' | 'referrals' | 'coupons' | 'commercial' | 'notes' | 'activity' | 'withdrawals' | 'competitions'>('overview');
   const [isStatementReportOpen, setIsStatementReportOpen] = useState(false);
   const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
+  const [isCashbackTransferModalOpen, setIsCashbackTransferModalOpen] = useState(false);
   const [selectedWithdrawalForInvoice, setSelectedWithdrawalForInvoice] = useState<BalanceWithdrawal | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -683,9 +685,21 @@ NZM JKR Wholesale System 🌟`;
                     </span>
                   )}
                 </div>
-                <span className="text-xl font-black text-cyan-500 block">
-                  {formatCurrency(dealer.cashbackBalance || 0)}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xl font-black text-cyan-500 block">
+                    {formatCurrency(dealer.cashbackBalance || 0)}
+                  </span>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCashbackTransferModalOpen(true)}
+                      className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-bold hover:bg-cyan-500 hover:text-white transition-all text-[9px] flex items-center gap-0.5 cursor-pointer"
+                      title="إصدار تذكرة تحويل واستبدال كاش باك تاجر رسمي"
+                    >
+                      تحويل رسمي ⇄
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center justify-between text-[11px] text-zinc-400 mt-1">
                   <span>{dealerExpirySummary.cashbackExpired > 0 ? `صالح: ${formatCurrency(dealerExpirySummary.cashbackValid)}` : `نسبة الحافز: ${dealer.cashbackRate || 0.5}%`}</span>
                   {isOwner && dealerExpirySummary.cashbackExpired > 0 && (
@@ -2135,6 +2149,20 @@ NZM JKR Wholesale System 🌟`;
             onClose={() => setIsWithdrawalModalOpen(false)}
             mode="dealer"
             preselectedPhone={dealer.phone}
+            onSuccess={() => {
+              setRefreshTrigger(prev => prev + 1);
+              onDealerUpdated();
+            }}
+          />
+        )}
+
+        {/* Wholesale Dealer Cashback Transfer Modal */}
+        {isCashbackTransferModalOpen && (
+          <CustomerCashbackTransferModal
+            isOpen={isCashbackTransferModalOpen}
+            onClose={() => setIsCashbackTransferModalOpen(false)}
+            dealer={dealer}
+            partyType="dealer"
             onSuccess={() => {
               setRefreshTrigger(prev => prev + 1);
               onDealerUpdated();

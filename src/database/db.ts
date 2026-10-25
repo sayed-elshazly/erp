@@ -621,8 +621,11 @@ class LocalDatabase {
     });
 
     // Auto-heal: filter out orphan transactions tied to deleted / canceled tickets
+    // Invariant: Non-ticket transactions (transfers CBT-, adjustments CBA-, withdrawals WD, lots, etc.) must NEVER be purged!
+    const isTopUpTicketRef = (ref: string) => ref.startsWith('JKR-') || ref.startsWith('TKT-');
     const validUnifiedTxs = allUnifiedTxs.filter(tx => {
       if (!tx.orderNumber) return true;
+      if (!isTopUpTicketRef(tx.orderNumber)) return true;
       return activeTicketNumbers.has(tx.orderNumber);
     });
 
@@ -4002,8 +4005,11 @@ class LocalDatabase {
     });
 
     // Auto-heal: filter out orphan transactions tied to deleted / canceled tickets
+    // Invariant: Non-ticket transactions (transfers CBT-, adjustments CBA-, withdrawals WD, lots, etc.) must NEVER be purged!
+    const isTopUpTicketRef = (ref: string) => ref.startsWith('JKR-') || ref.startsWith('TKT-');
     const validDealerTxs = allDealerTxs.filter(tx => {
       if (!tx.orderNumber) return true;
+      if (!isTopUpTicketRef(tx.orderNumber)) return true;
       return activeTicketNumbers.has(tx.orderNumber);
     });
 

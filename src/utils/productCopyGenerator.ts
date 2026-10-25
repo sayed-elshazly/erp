@@ -1,5 +1,6 @@
 import { GameTreeItem, GameSection, GameGroup, GameProduct, MarketingCopySettings, GameCopySettings } from '../types/topup.types';
 import { db } from '../database/db';
+import { PricingEngine } from '../services/pricing/pricingEngine';
 
 /**
  * Replace dynamic template placeholders like {company_name}, {game_name}, {today_date}, etc.
@@ -36,7 +37,7 @@ export function interpolatePlaceholders(
  * Format a single product line cleanly without automatic gems or icons: "اسم المنتج ⬅️ 1899"
  */
 export function formatProductPriceLine(prod: GameProduct): string {
-  const price = prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
+  const price = PricingEngine.getEffectiveProductPrice(prod, { isDealer: false });
   const name = prod.name.trim();
   return `${name} ⬅️ ${price}`;
 }
@@ -275,7 +276,7 @@ export function generateProductMarketingMessage(
     productName: prod.name
   });
 
-  const price = prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
+  const price = PricingEngine.getEffectiveProductPrice(prod, { isDealer: false });
   const prodTitle = prod.name;
 
   const body = `${prodTitle}\nالسعر: ${price} جنيه`;

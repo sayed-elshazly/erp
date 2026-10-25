@@ -132,7 +132,8 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
           if (matchedP) {
             setSelectedSectionId(matchedP.sectionId || '');
             setSelectedProductId(matchedP.id);
-            setUnitPrice(matchedP.calculatedPriceEGP || matchedP.customSellingPriceEGP || 0);
+            const isTicketDealer = Boolean((ticket as any).isDealer || ticket.department === 'dealers');
+            setUnitPrice(PricingEngine.getEffectiveProductPrice(matchedP, { isDealer: isTicketDealer, ticketType: ticket.ticketType }));
           }
         }
         setQuantity(1);
@@ -300,11 +301,12 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
     setSelectedSectionId('');
     setSelectedProductId('');
     const g = games.find(item => item.id === gId);
+    const isTicketDealer = Boolean((ticket as any)?.isDealer || ticket?.department === 'dealers');
     if (g && g.products && g.products.length > 0) {
       const firstP = g.products[0];
       setSelectedProductId(firstP.id);
       setSelectedSectionId(firstP.sectionId || '');
-      setUnitPrice(firstP.calculatedPriceEGP || firstP.customSellingPriceEGP || 0);
+      setUnitPrice(PricingEngine.getEffectiveProductPrice(firstP, { isDealer: isTicketDealer, ticketType: ticket?.ticketType }));
     } else {
       setUnitPrice(0);
     }
@@ -326,7 +328,8 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
       const p = selectedGame.products?.find(prod => prod.id === pId);
       if (p) {
         if (p.sectionId) setSelectedSectionId(p.sectionId);
-        setUnitPrice(p.calculatedPriceEGP || p.customSellingPriceEGP || 0);
+        const isTicketDealer = Boolean((ticket as any)?.isDealer || ticket?.department === 'dealers');
+        setUnitPrice(PricingEngine.getEffectiveProductPrice(p, { isDealer: isTicketDealer, ticketType: ticket?.ticketType }));
       }
     }
   };
@@ -688,7 +691,9 @@ export const TicketEditModal: React.FC<TicketEditModalProps> = ({
               >
                 <option value="">اختر الباقة...</option>
                 {availableProducts.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} — {p.calculatedPriceEGP || p.customSellingPriceEGP || 0} ج</option>
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {PricingEngine.getEffectiveProductPrice(p, { isDealer: Boolean((ticket as any)?.isDealer || ticket?.department === 'dealers'), ticketType: ticket?.ticketType })} ج
+                  </option>
                 ))}
               </select>
             </div>

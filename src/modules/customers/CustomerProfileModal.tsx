@@ -94,6 +94,7 @@ import { SortableDraggableItem } from '../../components/common/SortableDraggable
 import { BalanceWithdrawal } from '../../types/finance.types';
 import { NewWithdrawalTicketModal } from '../../components/finance/NewWithdrawalTicketModal';
 import { WithdrawalInvoiceModal } from '../../components/finance/WithdrawalInvoiceModal';
+import { CustomerCashbackTransferModal } from './CustomerCashbackTransferModal';
 
 interface CustomerProfileModalProps {
   isOpen: boolean;
@@ -123,6 +124,7 @@ const CustomerProfileModalContent: React.FC<CustomerProfileModalContentProps> = 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'coupons' | 'wallet' | 'referrals' | 'notes' | 'settings' | 'withdrawals' | 'competitions'>('dashboard');
   const [isStatementReportOpen, setIsStatementReportOpen] = useState(false);
   const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
+  const [isCashbackTransferModalOpen, setIsCashbackTransferModalOpen] = useState(false);
   const [selectedWithdrawalForInvoice, setSelectedWithdrawalForInvoice] = useState<BalanceWithdrawal | null>(null);
 
   // Unified Wallet Filter & Date States (Requirement #5)
@@ -927,6 +929,7 @@ NZM JKR Top Up 🌟`;
     let oldVal = 0;
     let newVal = 0;
 
+    let adjTicketNum: string | undefined = undefined;
     if (adjustTarget === 'account') {
       fieldName = 'الرصيد الدائن';
       oldVal = updated.accountBalance || 0;
@@ -942,6 +945,24 @@ NZM JKR Top Up 🌟`;
       else if (adjustMode === 'subtract') newVal = Math.max(0, oldVal - adjustAmount);
       else newVal = adjustAmount;
       updated.cashbackBalance = newVal;
+
+      // Formal System Isolation: Sync with Store Wallet w_cashback & issue CBA ticket
+      adjTicketNum = `CBA-${Date.now().toString().slice(-6)}`;
+      const deltaCb = newVal - oldVal;
+      if (deltaCb > 0) {
+        db.creditCashbackToSystemWallet(deltaCb, updated.name, adjTicketNum);
+      } else if (deltaCb < 0) {
+        db.debitCashbackFromSystemWallet(Math.abs(deltaCb), updated.name, adjTicketNum, false);
+      }
+
+      db.logAction(
+        { id: user?.id || 'sys', name: user?.fullName || 'المدير المالك', role: user?.role || 'admin', department: 'العملاء والمالية' },
+        'edit',
+        'كاش باك عملاء',
+        adjTicketNum,
+        `تسوية إدارية رسمية لكاش باك العميل [${updated.name}] (تذكرة #${adjTicketNum})`,
+        `تعديل رصيد الكاش باك من [${oldVal} ج] إلى [${newVal} ج]. السبب: ${adjustReason || 'تسوية إدارية'}`
+      );
     } else {
       fieldName = 'محفظة الإحالة والعمولات';
       oldVal = updated.referralWalletBalance || 0;
@@ -959,17 +980,18 @@ NZM JKR Top Up 🌟`;
       customerId: currentCust.id,
       walletType: adjustTarget === 'account' ? 'account_balance' : adjustTarget === 'cashback' ? 'cashback' : 'referral',
       type: 'adjustment',
-      operationName: `تعديل إداري (${fieldName}): ${adjustReason || 'تسوية رصيد بواسطة المدير'}`,
+      operationName: `تعديل إداري (${fieldName})${adjTicketNum ? ` (تذكرة #${adjTicketNum})` : ''}: ${adjustReason || 'تسوية رصيد بواسطة المدير'}`,
       amount: Math.abs(newVal - oldVal),
       balanceAfter: newVal,
-      notes: `بواسطة ${user?.fullName || 'المدير المالك'}`
+      notes: `بواسطة ${user?.fullName || 'المدير المالك'}`,
+      orderNumber: adjTicketNum
     });
 
     db.addCustomerNote({
       customerId: currentCust.id,
       authorName: user?.fullName || 'المدير المالك',
       authorRole: 'إدارة النظام',
-      content: `💰 تم تعديل ${fieldName} من [${oldVal} ج] إلى [${newVal} ج]. السبب: ${adjustReason || 'تسوية يدوية'}`,
+      content: `💰 تم تعديل ${fieldName}${adjTicketNum ? ` (تذكرة #${adjTicketNum})` : ''} من [${oldVal} ج] إلى [${newVal} ج]. السبب: ${adjustReason || 'تسوية يدوية'}`,
       type: 'financial'
     });
 
@@ -1842,15 +1864,23 @@ NZM JKR Top Up 🌟`;
                   )}
                   <button
                     type="button"
+                    onClick={() => setIsCashbackTransferModalOpen(true)}
+                    className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold hover:bg-emerald-500 hover:text-white transition-all text-[9px] flex items-center gap-0.5 cursor-pointer"
+                    title="إصدار تذكرة تحويل واستبدال كاش باك رسمي"
+                  >
+                    تحويل ⇄
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setAdjustTarget('cashback');
                       setAdjustAmount(0);
                       setIsBalanceAdjustModalOpen(true);
                     }}
-                    className="text-emerald-500 hover:text-emerald-400 font-bold cursor-pointer underline"
-                    title="تعديل رصيد الكاش باك مباشرة"
+                    className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 font-bold cursor-pointer text-[9px]"
+                    title="تسوية إدارية رسمية لكاش باك العميل"
                   >
-                    تعديل 💰
+                    تسوية ⚖️
                   </button>
                   <button
                     type="button"
@@ -4599,6 +4629,21 @@ NZM JKR Top Up 🌟`;
           preselectedPhone={currentCust.phone}
           onSuccess={() => {
             setRefreshTrigger(prev => prev + 1);
+            onCustomerUpdated();
+          }}
+        />
+      )}
+
+      {/* Official Cashback Transfer Modal */}
+      {isCashbackTransferModalOpen && (
+        <CustomerCashbackTransferModal
+          isOpen={isCashbackTransferModalOpen}
+          onClose={() => setIsCashbackTransferModalOpen(false)}
+          customer={currentCust}
+          partyType="customer"
+          onSuccess={() => {
+            setRefreshTrigger(prev => prev + 1);
+            loadCustomerDetails();
             onCustomerUpdated();
           }}
         />

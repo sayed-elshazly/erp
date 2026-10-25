@@ -1804,6 +1804,7 @@ export const CatalogModule: React.FC<CatalogModuleProps> = ({ department = 'cust
         const cfg = PricingEngine.getPricingConfig();
         calculatedCostEGP = Math.round(resolvedCostUSD * (cfg.rateUSD_EGP || 50) * 100) / 100;
       }
+      dealerSellingPrice = manualDealerPrice;
     }
 
     const qtyNumber = prodAvailableQuantity.trim() !== '' ? parseFloat(prodAvailableQuantity.trim()) : undefined;
@@ -1841,7 +1842,7 @@ export const CatalogModule: React.FC<CatalogModuleProps> = ({ department = 'cust
       autoPricingEnabled: prodAutoPricing,
       useCustomPricing: !prodAutoPricing,
       customSellingPriceEGP: !prodAutoPricing ? calculatedSellingPrice : undefined,
-      dealerPriceEGP: dealerSellingPrice,
+      dealerPriceEGP: !prodAutoPricing ? manualDealerPrice : dealerSellingPrice,
       dealerCustomSellingPriceEGP: !prodAutoPricing ? manualDealerPrice : undefined,
       calculatedPriceEGP: calculatedSellingPrice,
       firstOrderCostPriceEGP: firstOrderCost,
@@ -1889,6 +1890,8 @@ export const CatalogModule: React.FC<CatalogModuleProps> = ({ department = 'cust
       firstOrderCostPriceEGP: quickFirstOrderPrice,
       calculatedPriceEGP: quickRegularPrice,
       customSellingPriceEGP: quickRegularPrice,
+      dealerPriceEGP: quickEditPriceProduct.dealerPriceEGP || quickRegularPrice,
+      dealerCustomSellingPriceEGP: quickEditPriceProduct.dealerCustomSellingPriceEGP || quickRegularPrice,
       useCustomPricing: true,
       autoPricingEnabled: false,
       updatedAt: new Date().toISOString()
@@ -5101,10 +5104,19 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
       {/* Price Bar */}
       <div className="p-2.5 rounded-xl bg-gray-50 dark:bg-[#141417] border border-gray-100 dark:border-[#222228] flex items-center justify-between font-mono text-xs">
-        <span className="text-[11px] text-zinc-400 font-bold">سعر البيع النهائي (S):</span>
-        <strong className="text-orange-500 font-black text-sm">
-          {formatCurrency(product.calculatedPriceEGP || 0)}
-        </strong>
+        <span className="text-[11px] text-zinc-400 font-bold">
+          {(product.useCustomPricing || product.autoPricingEnabled === false) ? 'سعر البيع اليدوي (قطاعي):' : 'سعر البيع النهائي (S):'}
+        </span>
+        <div className="flex items-center gap-2">
+          <strong className="text-orange-500 font-black text-sm">
+            {formatCurrency(PricingEngine.getEffectiveProductPrice(product, { isDealer: false }))}
+          </strong>
+          {product.dealerPriceEGP && product.dealerPriceEGP !== (product.calculatedPriceEGP || product.customSellingPriceEGP) && (
+            <span className="text-[10px] text-purple-400 font-bold bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20" title="سعر الجملة للتجار">
+              جملة: {formatCurrency(PricingEngine.getEffectiveProductPrice(product, { isDealer: true }))}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Complete Pricing Breakdown Strip - Admin Only */}

@@ -306,6 +306,16 @@ export class FinancialEngine {
   }
 
   /**
+   * 6.5. GET EFFECTIVE PRODUCT SELLING PRICE
+   */
+  public static getEffectiveProductPrice(
+    prod: GameProduct,
+    options?: { isDealer?: boolean; ticketType?: string }
+  ): number {
+    return PricingEngine.getEffectiveProductPrice(prod, options);
+  }
+
+  /**
    * 7. PRICING SIMULATOR (Sandbox for Admin without saving)
    */
   public static simulatePricing(sim: PricingSimulationInput): PricingBreakdown {

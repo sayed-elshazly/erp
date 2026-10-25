@@ -379,6 +379,53 @@ export class PricingEngine {
   }
 
   /**
+   * 3.5. RESOLVE EFFECTIVE PRODUCT SELLING PRICE
+   * CRITICAL FINANCIAL RULE:
+   * When a product uses manual pricing (autoPricingEnabled === false or useCustomPricing === true),
+   * the manual customer price (customSellingPriceEGP) and manual dealer price (dealerCustomSellingPriceEGP)
+   * are STRICTLY honored without being overwritten or corrupted by auto-pricing calculations.
+   */
+  public static getEffectiveProductPrice(
+    prod: GameProduct,
+    options?: { isDealer?: boolean; ticketType?: string }
+  ): number {
+    const isDealer = Boolean(options?.isDealer);
+    const isFirstShipping = options?.ticketType === 'first_shipping';
+
+    if (isFirstShipping) {
+      return prod.firstOrderCostPriceEGP || prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
+    }
+
+    const isManual = prod.autoPricingEnabled === false || Boolean(prod.useCustomPricing);
+
+    if (isDealer) {
+      if (isManual) {
+        if (prod.dealerCustomSellingPriceEGP !== undefined && prod.dealerCustomSellingPriceEGP !== null && prod.dealerCustomSellingPriceEGP > 0) {
+          return prod.dealerCustomSellingPriceEGP;
+        }
+        if (prod.dealerPriceEGP !== undefined && prod.dealerPriceEGP !== null && prod.dealerPriceEGP > 0) {
+          return prod.dealerPriceEGP;
+        }
+        if (prod.customSellingPriceEGP !== undefined && prod.customSellingPriceEGP !== null && prod.customSellingPriceEGP > 0) {
+          return prod.customSellingPriceEGP;
+        }
+        return prod.calculatedPriceEGP || 0;
+      }
+      return prod.dealerPriceEGP || prod.dealerCustomSellingPriceEGP || prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
+    }
+
+    // Retail Customer
+    if (isManual) {
+      if (prod.customSellingPriceEGP !== undefined && prod.customSellingPriceEGP !== null && prod.customSellingPriceEGP > 0) {
+        return prod.customSellingPriceEGP;
+      }
+      return prod.calculatedPriceEGP || 0;
+    }
+
+    return prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
+  }
+
+  /**
    * 4. RECALCULATE ALL CATALOG PRODUCTS
    * CRITICAL RULE: Recalculates ONLY products where autoPricingEnabled !== false.
    * Manual pricing products are strictly untouched!
@@ -412,8 +459,23 @@ export class PricingEngine {
 
             // Rule 3 & 4: If product is manual, update ONLY actual cost for FIFO profit accounting.
             // Selling price is STRICTLY UNTOUCHED!
-            if (prod.autoPricingEnabled === false || (prod.useCustomPricing && prod.customSellingPriceEGP)) {
-              prod.costPriceEGP = Math.round(effectiveCostUSD * activeConfig.rateUSD_EGP * 100) / 100;
+            const isManual = prod.autoPricingEnabled === false || Boolean(prod.useCustomPricing);
+            if (isManual) {
+              const effectiveManualPrice = prod.customSellingPriceEGP || prod.calculatedPriceEGP || 0;
+              prod.customSellingPriceEGP = effectiveManualPrice;
+              prod.calculatedPriceEGP = effectiveManualPrice;
+
+              const effectiveManualDealerPrice = prod.dealerCustomSellingPriceEGP || prod.dealerPriceEGP || effectiveManualPrice;
+              prod.dealerCustomSellingPriceEGP = effectiveManualDealerPrice;
+              prod.dealerPriceEGP = effectiveManualDealerPrice;
+
+              // Only update cost price from USD if effectiveCostUSD is positive and no manual EGP cost is set
+              if (effectiveCostUSD > 0) {
+                prod.costUSD = effectiveCostUSD;
+                if (!prod.costPriceEGP || prod.costPriceEGP <= 0) {
+                  prod.costPriceEGP = Math.round(effectiveCostUSD * activeConfig.rateUSD_EGP * 100) / 100;
+                }
+              }
               skippedManualCount++;
               return;
             }
@@ -563,32 +625,24 @@ export class PricingEngine {
 
     // Determine Product Selling Price strictly from Pricing Engine / Product settings
     // RULE: FIFO NEVER touches or changes selling price!
-    let freshSellingPrice = 0;
-    if (ticketType === 'first_shipping') {
-      freshSellingPrice = prod.firstOrderCostPriceEGP || prod.calculatedPriceEGP || 0;
-    } else if (isDealer) {
-      freshSellingPrice = prod.dealerPriceEGP || prod.calculatedPriceEGP || prod.customSellingPriceEGP || 0;
-    } else if (prod.autoPricingEnabled !== false && !prod.useCustomPricing) {
-      freshSellingPrice = prod.calculatedPriceEGP || 0;
-      if (freshSellingPrice === 0 && (prod.costUSD || 0) > 0) {
-        // Calculate once if missing, using strictly manual costUSD (never FIFO)
-        const b = this.calculateSellingPrice({
-          costUSD: prod.costUSD,
-          gameId: g?.id,
-          productId: prod.id,
-          customProfitMarginPercent: prod.profitMarginPercent,
-          customFixedCostEGP: prod.fixedCostPerOrder,
-          customReservePercent: prod.reservePercent,
-          customDevelopmentPercent: prod.developmentPercent,
-          customCashbackPercent: prod.cashbackPercent,
-          customReferralPercent: prod.partnerCommissionPercent,
-          isCashbackEnabled: prod.isCashbackEnabled,
-          isReferralEnabled: prod.isReferralEnabled
-        }, activeConfig);
-        freshSellingPrice = b.finalSellingPriceEGP;
-      }
-    } else {
-      freshSellingPrice = prod.customSellingPriceEGP || prod.calculatedPriceEGP || 0;
+    // RULE: Manual pricing (customSellingPriceEGP / dealerCustomSellingPriceEGP) is STRICTLY honored!
+    let freshSellingPrice = this.getEffectiveProductPrice(prod, { isDealer, ticketType });
+    if (freshSellingPrice === 0 && prod.autoPricingEnabled !== false && !prod.useCustomPricing && (prod.costUSD || 0) > 0) {
+      // Calculate once if missing, using strictly manual costUSD (never FIFO)
+      const b = this.calculateSellingPrice({
+        costUSD: prod.costUSD,
+        gameId: g?.id,
+        productId: prod.id,
+        customProfitMarginPercent: prod.profitMarginPercent,
+        customFixedCostEGP: prod.fixedCostPerOrder,
+        customReservePercent: prod.reservePercent,
+        customDevelopmentPercent: prod.developmentPercent,
+        customCashbackPercent: prod.cashbackPercent,
+        customReferralPercent: prod.partnerCommissionPercent,
+        isCashbackEnabled: prod.isCashbackEnabled,
+        isReferralEnabled: prod.isReferralEnabled
+      }, activeConfig);
+      freshSellingPrice = isDealer ? (prod.dealerCustomSellingPriceEGP || b.dealerPriceEGP || 0) : b.finalSellingPriceEGP;
     }
 
     // Determine Actual FIFO Cost strictly for profit/loss accounting (Does NOT affect selling price)
