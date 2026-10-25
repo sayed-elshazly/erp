@@ -1285,6 +1285,11 @@ class LocalDatabase {
     }
 
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in refundTicket:', e);
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('store_wallets_updated'));
       window.dispatchEvent(new CustomEvent('tickets_updated'));
@@ -1491,6 +1496,9 @@ class LocalDatabase {
             (x.category && x.category.toLowerCase().includes(q))
           ));
         }
+        if (!w) {
+          w = wallets.find(x => x.type === 'operating' && !isSystem(x));
+        }
 
         if (w) {
           const before = w.balance;
@@ -1502,14 +1510,15 @@ class LocalDatabase {
 
           // If line was used, adjust line balance as well
           const lineId = ticket.paymentWalletNumberId || ticket.paymentReceivedPhone;
-          if (lineId && w.numbers && w.numbers.length > 0) {
-            const num = w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId);
-            if (num) {
-              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) - effectiveCash) * 100) / 100);
-              num.dailyReceived = Math.max(0, Math.round(((num.dailyReceived || 0) - effectiveCash) * 100) / 100);
-              num.monthlyReceived = Math.max(0, Math.round(((num.monthlyReceived || 0) - effectiveCash) * 100) / 100);
-              num.totalReceived = Math.max(0, Math.round(((num.totalReceived || 0) - effectiveCash) * 100) / 100);
-            }
+          let num = lineId && w.numbers ? w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+          if (!num && w.numbers && w.numbers.length > 0) {
+            num = w.numbers.find(n => n.isPrimary) || w.numbers[0];
+          }
+          if (num) {
+            num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) - effectiveCash) * 100) / 100);
+            num.dailyReceived = Math.max(0, Math.round(((num.dailyReceived || 0) - effectiveCash) * 100) / 100);
+            num.monthlyReceived = Math.max(0, Math.round(((num.monthlyReceived || 0) - effectiveCash) * 100) / 100);
+            num.totalReceived = Math.max(0, Math.round(((num.totalReceived || 0) - effectiveCash) * 100) / 100);
           }
 
           this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
@@ -1613,18 +1622,21 @@ class LocalDatabase {
       const tktId = ticket.id;
 
       // 5a. Purge and reverse Customer Unified Wallet Transactions (STORAGE_KEYS.CASHBACK)
+      let custReferralReversedFromTx = false;
+      const refCustIdsToRecalc = new Set<string>();
       try {
         const allCustTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.CASHBACK, initialUnifiedWalletTransactions);
         const matchedCustTxs = allCustTxs.filter(t => (tktNum && t.orderNumber === tktNum) || (tktId && t.orderNumber === tktId));
         for (const tx of matchedCustTxs) {
           if (tx.walletType === 'referral') {
+            custReferralReversedFromTx = true;
             const refCust = this.getCustomerById(tx.customerId) || this.findCustomerByPhone(tx.customerId);
             if (refCust) {
               refCust.referralWalletBalance = Math.max(0, Math.round(((refCust.referralWalletBalance || 0) - Number(tx.amount || 0)) * 100) / 100);
               refCust.totalReferralCommissionEarned = Math.max(0, Math.round(((refCust.totalReferralCommissionEarned || 0) - Number(tx.amount || 0)) * 100) / 100);
               this.saveCustomer(refCust);
-              this.debitReferralFromSystemWallet(Number(tx.amount || 0), refCust.name, `عكس عمولة إحالة لتذكرة محذوفة #${tktNum}`);
-              this.recalculateCustomerProfile(refCust.id);
+              this.debitReferralFromSystemWallet(Number(tx.amount || 0), refCust.name, `عكس عمولة إحالة لتذكرة محذوفة #${tktNum}`, false);
+              refCustIdsToRecalc.add(refCust.id);
             }
           }
         }
@@ -1632,23 +1644,27 @@ class LocalDatabase {
           const remainingCustTxs = allCustTxs.filter(t => !((tktNum && t.orderNumber === tktNum) || (tktId && t.orderNumber === tktId)));
           this.setItem(STORAGE_KEYS.CASHBACK, remainingCustTxs);
         }
+        refCustIdsToRecalc.forEach(id => this.recalculateCustomerProfile(id));
       } catch (errCustTx) {
         console.warn('Error purging customer unified wallet transactions:', errCustTx);
       }
 
       // 5b. Purge and reverse Dealer Unified Wallet Transactions (STORAGE_KEYS.DEALER_TRANSACTIONS)
+      let dealerReferralReversedFromTx = false;
+      const refDealerIdsToRecalc = new Set<string>();
       try {
         const allDealerTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.DEALER_TRANSACTIONS, []);
         const matchedDealerTxs = allDealerTxs.filter(t => (tktNum && t.orderNumber === tktNum) || (tktId && t.orderNumber === tktId));
         for (const tx of matchedDealerTxs) {
           if (tx.walletType === 'referral') {
+            dealerReferralReversedFromTx = true;
             const refDealer = this.getDealerById(tx.customerId) || this.findDealerByPhone(tx.customerId);
             if (refDealer) {
               refDealer.referralWalletBalance = Math.max(0, Math.round(((refDealer.referralWalletBalance || 0) - Number(tx.amount || 0)) * 100) / 100);
               refDealer.totalReferralCommissionEarned = Math.max(0, Math.round(((refDealer.totalReferralCommissionEarned || 0) - Number(tx.amount || 0)) * 100) / 100);
               this.saveDealer(refDealer);
-              this.debitReferralFromSystemWallet(Number(tx.amount || 0), refDealer.name, `عكس عمولة إحالة لتذكرة تاجر محذوفة #${tktNum}`);
-              this.recalculateDealerProfile(refDealer.id);
+              this.debitReferralFromSystemWallet(Number(tx.amount || 0), refDealer.name, `عكس عمولة إحالة لتذكرة تاجر محذوفة #${tktNum}`, true);
+              refDealerIdsToRecalc.add(refDealer.id);
             }
           }
         }
@@ -1656,138 +1672,143 @@ class LocalDatabase {
           const remainingDealerTxs = allDealerTxs.filter(t => !((tktNum && t.orderNumber === tktNum) || (tktId && t.orderNumber === tktId)));
           this.setItem(STORAGE_KEYS.DEALER_TRANSACTIONS, remainingDealerTxs);
         }
+        refDealerIdsToRecalc.forEach(id => this.recalculateDealerProfile(id));
       } catch (errDealerTx) {
         console.warn('Error purging dealer unified wallet transactions:', errDealerTx);
       }
 
-      let cust = this.getCustomerById(ticket.customerId);
-      if (!cust && ticket.customerPhone) {
-        cust = this.getCustomers(true).find(c => c.phone === ticket.customerPhone);
-      }
-      if (cust) {
-        if (!isAlreadyRefunded) {
-          cust.totalSpent = Math.max(0, (cust.totalSpent || 0) - (ticket.requiredAmount || 0));
-          cust.totalOrders = Math.max(0, (cust.totalOrders || 0) - 1);
+      const isDealerTicket = ticket.department === 'dealers' || !!this.getDealerTicketById(ticket.id) || !!this.getDealerById(ticket.customerId);
 
-          // Reverse earned cashback
-          if (earnedCashback > 0) {
-            cust.cashbackBalance = Math.max(0, Math.round(((cust.cashbackBalance || 0) - earnedCashback) * 100) / 100);
-            cust.totalCashbackEarned = Math.max(0, Math.round(((cust.totalCashbackEarned || 0) - earnedCashback) * 100) / 100);
-            this.debitCashbackFromSystemWallet(earnedCashback, cust.name, ticket.ticketNumber);
-          }
-          // Restore cashback used
-          if (ticket.cashbackUsed && ticket.cashbackUsed > 0) {
-            cust.cashbackBalance = Math.round(((cust.cashbackBalance || 0) + ticket.cashbackUsed) * 100) / 100;
-            this.creditCashbackToSystemWallet(ticket.cashbackUsed, cust.name, ticket.ticketNumber);
-          }
-          // Reverse earned referral commission fallback (if referrer wasn't caught by transactions)
-          if (ticket.referralCommissionEarned && ticket.referralCommissionEarned > 0) {
-            if (cust.referredByCode) {
-              const refCust = this.getCustomers(true).find(c => c.referralCode?.trim().toUpperCase() === cust!.referredByCode?.trim().toUpperCase());
-              if (refCust) {
-                refCust.referralWalletBalance = Math.max(0, Math.round(((refCust.referralWalletBalance || 0) - ticket.referralCommissionEarned!) * 100) / 100);
-                refCust.totalReferralCommissionEarned = Math.max(0, Math.round(((refCust.totalReferralCommissionEarned || 0) - ticket.referralCommissionEarned!) * 100) / 100);
-                this.saveCustomer(refCust);
-              }
+      if (isDealerTicket) {
+        const dealer = this.getDealerById(ticket.customerId) || (ticket.customerPhone ? this.findDealerByPhone(ticket.customerPhone) : undefined);
+        if (dealer) {
+          if (!isAlreadyRefunded) {
+            dealer.totalSpent = Math.max(0, (dealer.totalSpent || 0) - (ticket.requiredAmount || 0));
+            dealer.totalOrders = Math.max(0, (dealer.totalOrders || 0) - 1);
+
+            if (earnedCashback > 0) {
+              dealer.cashbackBalance = Math.max(0, Math.round(((dealer.cashbackBalance || 0) - earnedCashback) * 100) / 100);
+              dealer.totalCashbackEarned = Math.max(0, Math.round(((dealer.totalCashbackEarned || 0) - earnedCashback) * 100) / 100);
+              this.debitCashbackFromSystemWallet(earnedCashback, dealer.name, ticket.ticketNumber, true);
             }
-            this.debitReferralFromSystemWallet(
-              ticket.referralCommissionEarned,
-              cust.name,
-              `عكس عمولة إحالة لتذكرة محذوفة #${ticket.ticketNumber}`
-            );
+            if (ticket.cashbackUsed && ticket.cashbackUsed > 0) {
+              dealer.cashbackBalance = Math.round(((dealer.cashbackBalance || 0) + ticket.cashbackUsed) * 100) / 100;
+              this.creditCashbackToSystemWallet(ticket.cashbackUsed, dealer.name, ticket.ticketNumber, true);
+            }
+            if (!dealerReferralReversedFromTx && ticket.referralCommissionEarned && ticket.referralCommissionEarned > 0) {
+              if (dealer.referredByCode) {
+                const refD = this.getDealers(true).find(d => d.referralCode?.trim().toUpperCase() === dealer!.referredByCode?.trim().toUpperCase());
+                if (refD) {
+                  refD.referralWalletBalance = Math.max(0, Math.round(((refD.referralWalletBalance || 0) - ticket.referralCommissionEarned!) * 100) / 100);
+                  refD.totalReferralCommissionEarned = Math.max(0, Math.round(((refD.totalReferralCommissionEarned || 0) - ticket.referralCommissionEarned!) * 100) / 100);
+                  this.saveDealer(refD);
+                }
+              }
+              this.debitReferralFromSystemWallet(
+                ticket.referralCommissionEarned,
+                dealer.name,
+                `عكس عمولة إحالة لتذكرة تاجر محذوفة #${ticket.ticketNumber}`,
+                true
+              );
+            }
+            if (ticket.referralBalanceUsed && ticket.referralBalanceUsed > 0) {
+              dealer.referralWalletBalance = Math.round(((dealer.referralWalletBalance || 0) + ticket.referralBalanceUsed) * 100) / 100;
+              this.creditReferralToSystemWallet(ticket.referralBalanceUsed, dealer.name, ticket.ticketNumber, true);
+            }
+            if (ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
+              dealer.accountBalance = Math.max(0, Math.round(((dealer.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
+              this.debitTrustFromSystemWallet(ticket.overpaymentAmount, dealer.name, 'عكس زيادة مدفوعات تذكرة تاجر محذوفة', ticket.ticketNumber, true);
+            }
+            // Reverse shortage / forgive dealer debt on cancellation
+            if (ticket.shortageAmount && ticket.shortageAmount > 0) {
+              dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
+              this.addDealerUnifiedWalletTransaction({
+                customerId: dealer.id,
+                walletType: 'account_balance',
+                type: 'credit',
+                operationName: `إلغاء وتسوية عجز تذكرة تاجر ملغاة #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
+                amount: ticket.shortageAmount,
+                balanceAfter: dealer.accountBalance,
+                orderNumber: ticket.ticketNumber
+              });
+            }
+            if (ticket.accountBalanceUsed && ticket.accountBalanceUsed > 0) {
+              dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + ticket.accountBalanceUsed) * 100) / 100;
+              this.creditTrustToSystemWallet(ticket.accountBalanceUsed, dealer.name, 'استعادة رصيد مستخدم لتذكرة تاجر محذوفة', ticket.ticketNumber, true);
+            }
+            dealer.balance = dealer.accountBalance;
+            this.saveDealer(dealer);
           }
-          // Restore referral balance used
-          if (ticket.referralBalanceUsed && ticket.referralBalanceUsed > 0) {
-            cust.referralWalletBalance = Math.round(((cust.referralWalletBalance || 0) + ticket.referralBalanceUsed) * 100) / 100;
-            this.creditReferralToSystemWallet(ticket.referralBalanceUsed, cust.name, ticket.ticketNumber);
-          }
-          // Reverse overpayment / customer credit
-          if (ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
-            cust.accountBalance = Math.max(0, Math.round(((cust.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
-            this.debitTrustFromSystemWallet(ticket.overpaymentAmount, cust.name, 'عكس زيادة مدفوعات تذكرة محذوفة', ticket.ticketNumber);
-          }
-          // Reverse shortage / forgive customer debt on cancellation
-          if (ticket.shortageAmount && ticket.shortageAmount > 0) {
-            cust.accountBalance = Math.round(((cust.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
-            this.addUnifiedWalletTransaction({
-              customerId: cust.id,
-              walletType: 'account_balance',
-              type: 'credit',
-              operationName: `إلغاء وتسوية عجز تذكرة ملغاة #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
-              amount: ticket.shortageAmount,
-              balanceAfter: cust.accountBalance,
-              orderNumber: ticket.ticketNumber
-            });
-          }
-          // Restore account balance used
-          if (ticket.accountBalanceUsed && ticket.accountBalanceUsed > 0) {
-            cust.accountBalance = Math.round(((cust.accountBalance || 0) + ticket.accountBalanceUsed) * 100) / 100;
-            this.creditTrustToSystemWallet(ticket.accountBalanceUsed, cust.name, 'استعادة رصيد مستخدم لتذكرة محذوفة', ticket.ticketNumber);
-          }
-          cust.balance = cust.accountBalance;
-
-          this.saveCustomer(cust);
         }
-      }
+      } else {
+        let cust = this.getCustomerById(ticket.customerId);
+        if (!cust && ticket.customerPhone) {
+          cust = this.findCustomerByPhone(ticket.customerPhone);
+        }
+        if (cust) {
+          if (!isAlreadyRefunded) {
+            cust.totalSpent = Math.max(0, (cust.totalSpent || 0) - (ticket.requiredAmount || 0));
+            cust.totalOrders = Math.max(0, (cust.totalOrders || 0) - 1);
 
-      const dealer = this.getDealerById(ticket.customerId) || (ticket.customerPhone ? this.getDealerById(ticket.customerPhone) : undefined);
-      if (dealer) {
-        if (!isAlreadyRefunded) {
-          dealer.totalSpent = Math.max(0, (dealer.totalSpent || 0) - (ticket.requiredAmount || 0));
-          dealer.totalOrders = Math.max(0, (dealer.totalOrders || 0) - 1);
-
-          if (earnedCashback > 0) {
-            dealer.cashbackBalance = Math.max(0, Math.round(((dealer.cashbackBalance || 0) - earnedCashback) * 100) / 100);
-            dealer.totalCashbackEarned = Math.max(0, Math.round(((dealer.totalCashbackEarned || 0) - earnedCashback) * 100) / 100);
-            this.debitCashbackFromSystemWallet(earnedCashback, dealer.name, ticket.ticketNumber);
-          }
-          if (ticket.cashbackUsed && ticket.cashbackUsed > 0) {
-            dealer.cashbackBalance = Math.round(((dealer.cashbackBalance || 0) + ticket.cashbackUsed) * 100) / 100;
-            this.creditCashbackToSystemWallet(ticket.cashbackUsed, dealer.name, ticket.ticketNumber);
-          }
-          if (ticket.referralCommissionEarned && ticket.referralCommissionEarned > 0) {
-            if (dealer.referredByCode) {
-              const refD = this.getDealers(true).find(d => d.referralCode?.trim().toUpperCase() === dealer!.referredByCode?.trim().toUpperCase());
-              if (refD) {
-                refD.referralWalletBalance = Math.max(0, Math.round(((refD.referralWalletBalance || 0) - ticket.referralCommissionEarned!) * 100) / 100);
-                refD.totalReferralCommissionEarned = Math.max(0, Math.round(((refD.totalReferralCommissionEarned || 0) - ticket.referralCommissionEarned!) * 100) / 100);
-                this.saveDealer(refD);
-              }
+            // Reverse earned cashback
+            if (earnedCashback > 0) {
+              cust.cashbackBalance = Math.max(0, Math.round(((cust.cashbackBalance || 0) - earnedCashback) * 100) / 100);
+              cust.totalCashbackEarned = Math.max(0, Math.round(((cust.totalCashbackEarned || 0) - earnedCashback) * 100) / 100);
+              this.debitCashbackFromSystemWallet(earnedCashback, cust.name, ticket.ticketNumber, false);
             }
-            this.debitReferralFromSystemWallet(
-              ticket.referralCommissionEarned,
-              dealer.name,
-              `عكس عمولة إحالة لتذكرة تاجر محذوفة #${ticket.ticketNumber}`
-            );
+            // Restore cashback used
+            if (ticket.cashbackUsed && ticket.cashbackUsed > 0) {
+              cust.cashbackBalance = Math.round(((cust.cashbackBalance || 0) + ticket.cashbackUsed) * 100) / 100;
+              this.creditCashbackToSystemWallet(ticket.cashbackUsed, cust.name, ticket.ticketNumber, false);
+            }
+            // Reverse earned referral commission fallback (only if referrer wasn't already caught by transactions)
+            if (!custReferralReversedFromTx && ticket.referralCommissionEarned && ticket.referralCommissionEarned > 0) {
+              if (cust.referredByCode) {
+                const refCust = this.getCustomers(true).find(c => c.referralCode?.trim().toUpperCase() === cust!.referredByCode?.trim().toUpperCase());
+                if (refCust) {
+                  refCust.referralWalletBalance = Math.max(0, Math.round(((refCust.referralWalletBalance || 0) - ticket.referralCommissionEarned!) * 100) / 100);
+                  refCust.totalReferralCommissionEarned = Math.max(0, Math.round(((refCust.totalReferralCommissionEarned || 0) - ticket.referralCommissionEarned!) * 100) / 100);
+                  this.saveCustomer(refCust);
+                }
+              }
+              this.debitReferralFromSystemWallet(
+                ticket.referralCommissionEarned,
+                cust.name,
+                `عكس عمولة إحالة لتذكرة محذوفة #${ticket.ticketNumber}`,
+                false
+              );
+            }
+            // Restore referral balance used
+            if (ticket.referralBalanceUsed && ticket.referralBalanceUsed > 0) {
+              cust.referralWalletBalance = Math.round(((cust.referralWalletBalance || 0) + ticket.referralBalanceUsed) * 100) / 100;
+              this.creditReferralToSystemWallet(ticket.referralBalanceUsed, cust.name, ticket.ticketNumber, false);
+            }
+            // Reverse overpayment / customer credit
+            if (ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
+              cust.accountBalance = Math.max(0, Math.round(((cust.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
+              this.debitTrustFromSystemWallet(ticket.overpaymentAmount, cust.name, 'عكس زيادة مدفوعات تذكرة محذوفة', ticket.ticketNumber, false);
+            }
+            // Reverse shortage / forgive customer debt on cancellation
+            if (ticket.shortageAmount && ticket.shortageAmount > 0) {
+              cust.accountBalance = Math.round(((cust.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
+              this.addUnifiedWalletTransaction({
+                customerId: cust.id,
+                walletType: 'account_balance',
+                type: 'credit',
+                operationName: `إلغاء وتسوية عجز تذكرة ملغاة #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
+                amount: ticket.shortageAmount,
+                balanceAfter: cust.accountBalance,
+                orderNumber: ticket.ticketNumber
+              });
+            }
+            // Restore account balance used
+            if (ticket.accountBalanceUsed && ticket.accountBalanceUsed > 0) {
+              cust.accountBalance = Math.round(((cust.accountBalance || 0) + ticket.accountBalanceUsed) * 100) / 100;
+              this.creditTrustToSystemWallet(ticket.accountBalanceUsed, cust.name, 'استعادة رصيد مستخدم لتذكرة محذوفة', ticket.ticketNumber, false);
+            }
+            cust.balance = cust.accountBalance;
+            this.saveCustomer(cust);
           }
-          if (ticket.referralBalanceUsed && ticket.referralBalanceUsed > 0) {
-            dealer.referralWalletBalance = Math.round(((dealer.referralWalletBalance || 0) + ticket.referralBalanceUsed) * 100) / 100;
-            this.creditReferralToSystemWallet(ticket.referralBalanceUsed, dealer.name, ticket.ticketNumber);
-          }
-          if (ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
-            dealer.accountBalance = Math.max(0, Math.round(((dealer.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
-            this.debitTrustFromSystemWallet(ticket.overpaymentAmount, dealer.name, 'عكس زيادة مدفوعات تذكرة تاجر محذوفة', ticket.ticketNumber);
-          }
-          // Reverse shortage / forgive dealer debt on cancellation
-          if (ticket.shortageAmount && ticket.shortageAmount > 0) {
-            dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
-            this.addDealerUnifiedWalletTransaction({
-              customerId: dealer.id,
-              walletType: 'account_balance',
-              type: 'credit',
-              operationName: `إلغاء وتسوية عجز تذكرة تاجر ملغاة #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
-              amount: ticket.shortageAmount,
-              balanceAfter: dealer.accountBalance,
-              orderNumber: ticket.ticketNumber
-            });
-          }
-          if (ticket.accountBalanceUsed && ticket.accountBalanceUsed > 0) {
-            dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + ticket.accountBalanceUsed) * 100) / 100;
-            this.creditTrustToSystemWallet(ticket.accountBalanceUsed, dealer.name, 'استعادة رصيد مستخدم لتذكرة تاجر محذوفة', ticket.ticketNumber);
-          }
-          dealer.balance = dealer.accountBalance;
-
-          this.saveDealer(dealer);
         }
       }
     } catch (e) {
@@ -1822,11 +1843,16 @@ class LocalDatabase {
     const clientName = updatedTicket.customerName || oldTicket.customerName || (isDealer ? 'تاجر' : 'عميل');
     const ticketNum = updatedTicket.ticketNumber || oldTicket.ticketNumber;
 
+    const wasCanceled = oldTicket.status === 'canceled';
+    const isNowCanceled = updatedTicket.status === 'canceled';
+    const wasCompleted = oldTicket.status === 'completed';
+    const isNowCompleted = updatedTicket.status === 'completed';
+
     // 1. RECONCILE CASH PAYMENT IN RECEIVING STORE WALLETS (فارق النقدية بمحفظة الاستلام والخط)
     const oldW = oldTicket.paymentWalletId || oldTicket.paymentWallet;
     const newW = updatedTicket.paymentWalletId || updatedTicket.paymentWallet;
     const oldAmt = Number(oldTicket.receivedAmount || 0);
-    const newAmt = Number(updatedTicket.receivedAmount || 0);
+    const newAmt = isNowCanceled ? 0 : Number(updatedTicket.receivedAmount || 0);
 
     try {
       const wallets = this.getStoreWallets();
@@ -1835,10 +1861,59 @@ class LocalDatabase {
         ['w_profits', 'w_cashback', 'w_referrals', 'w_trust'].includes(x.id) ||
         !!x.systemType;
 
-      if (oldW === newW && oldW) {
+      if (isNowCanceled && !wasCanceled) {
+        // Revert all received cash from receiving store wallet on cancellation
+        const cashToRevert = oldAmt;
+        if (cashToRevert > 0 && oldW) {
+          let wOld = wallets.find(x => !isSystem(x) && (x.id === oldW || x.name === oldW));
+          if (!wOld) {
+            wOld = wallets.find(x => x.type === 'operating' && !isSystem(x));
+          }
+          if (wOld) {
+            const before = wOld.balance;
+            wOld.balance = Math.max(0, Math.round((wOld.balance - cashToRevert) * 100) / 100);
+            wOld.dailyIncome = Math.max(0, Math.round(((wOld.dailyIncome || 0) - cashToRevert) * 100) / 100);
+            wOld.monthlyIncome = Math.max(0, Math.round(((wOld.monthlyIncome || 0) - cashToRevert) * 100) / 100);
+            wOld.totalReceived = Math.max(0, Math.round(((wOld.totalReceived || 0) - cashToRevert) * 100) / 100);
+            wOld.updatedAt = new Date().toISOString();
+
+            const lineId = oldTicket.paymentWalletNumberId || oldTicket.paymentReceivedPhone;
+            let num = lineId && wOld.numbers ? wOld.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+            if (!num && wOld.numbers && wOld.numbers.length > 0) {
+              num = wOld.numbers.find(n => n.isPrimary) || wOld.numbers[0];
+            }
+            if (num) {
+              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) - cashToRevert) * 100) / 100);
+              num.dailyReceived = Math.max(0, Math.round(((num.dailyReceived || 0) - cashToRevert) * 100) / 100);
+              num.monthlyReceived = Math.max(0, Math.round(((num.monthlyReceived || 0) - cashToRevert) * 100) / 100);
+              num.totalReceived = Math.max(0, Math.round(((num.totalReceived || 0) - cashToRevert) * 100) / 100);
+            }
+
+            this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+            this.addStoreWalletTransaction({
+              walletId: wOld.id,
+              walletName: wOld.name,
+              type: 'withdrawal',
+              amount: cashToRevert,
+              currency: wOld.currency || 'EGP',
+              balanceBefore: before,
+              balanceAfter: wOld.balance,
+              description: `إلغاء تحصيل تذكرة ملغاة #${ticketNum}`,
+              referenceNumber: ticketNum,
+              sourceType: 'ticket',
+              sourceTicketId: updatedTicket.id,
+              performedBy: user ? { id: String(user.id || ''), name: String(user.fullName || user.name || ''), role: String(user.role || 'staff') } : undefined
+            });
+            adjustments.push(`إلغاء تحصيل النقدية من محفظة [${wOld.name}]: -${cashToRevert} ج`);
+          }
+        }
+      } else if (oldW === newW && oldW) {
         const cashDiff = Math.round((newAmt - oldAmt) * 100) / 100;
         if (cashDiff !== 0) {
-          const w = wallets.find(x => !isSystem(x) && (x.id === oldW || x.name === oldW));
+          let w = wallets.find(x => !isSystem(x) && (x.id === oldW || x.name === oldW));
+          if (!w) {
+            w = wallets.find(x => x.type === 'operating' && !isSystem(x));
+          }
           if (w) {
             const before = w.balance;
             w.balance = Math.max(0, Math.round((w.balance + cashDiff) * 100) / 100);
@@ -1849,14 +1924,15 @@ class LocalDatabase {
 
             // Adjust line / phone number balance if selected
             const lineId = updatedTicket.paymentWalletNumberId || updatedTicket.paymentReceivedPhone || oldTicket.paymentWalletNumberId || oldTicket.paymentReceivedPhone;
-            if (lineId && w.numbers && w.numbers.length > 0) {
-              const num = w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId);
-              if (num) {
-                num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) + cashDiff) * 100) / 100);
-                num.dailyReceived = Math.max(0, Math.round(((num.dailyReceived || 0) + cashDiff) * 100) / 100);
-                num.monthlyReceived = Math.max(0, Math.round(((num.monthlyReceived || 0) + cashDiff) * 100) / 100);
-                num.totalReceived = Math.max(0, Math.round(((num.totalReceived || 0) + cashDiff) * 100) / 100);
-              }
+            let num = lineId && w.numbers ? w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+            if (!num && w.numbers && w.numbers.length > 0) {
+              num = w.numbers.find(n => n.isPrimary) || w.numbers[0];
+            }
+            if (num) {
+              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) + cashDiff) * 100) / 100);
+              num.dailyReceived = Math.max(0, Math.round(((num.dailyReceived || 0) + cashDiff) * 100) / 100);
+              num.monthlyReceived = Math.max(0, Math.round(((num.monthlyReceived || 0) + cashDiff) * 100) / 100);
+              num.totalReceived = Math.max(0, Math.round(((num.totalReceived || 0) + cashDiff) * 100) / 100);
             }
 
             this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
@@ -1882,7 +1958,8 @@ class LocalDatabase {
       } else if (oldW !== newW) {
         // Receiving wallet changed! Deduct old from old wallet, add new to new wallet
         if (oldW && oldAmt > 0) {
-          const wOld = wallets.find(x => !isSystem(x) && (x.id === oldW || x.name === oldW));
+          let wOld = wallets.find(x => !isSystem(x) && (x.id === oldW || x.name === oldW));
+          if (!wOld) wOld = wallets.find(x => x.type === 'operating' && !isSystem(x));
           if (wOld) {
             const before = wOld.balance;
             wOld.balance = Math.max(0, Math.round((wOld.balance - oldAmt) * 100) / 100);
@@ -1890,6 +1967,14 @@ class LocalDatabase {
             wOld.monthlyIncome = Math.max(0, Math.round(((wOld.monthlyIncome || 0) - oldAmt) * 100) / 100);
             wOld.totalReceived = Math.max(0, Math.round(((wOld.totalReceived || 0) - oldAmt) * 100) / 100);
             wOld.updatedAt = new Date().toISOString();
+
+            const lineId = oldTicket.paymentWalletNumberId || oldTicket.paymentReceivedPhone;
+            let num = lineId && wOld.numbers ? wOld.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+            if (!num && wOld.numbers && wOld.numbers.length > 0) num = wOld.numbers.find(n => n.isPrimary) || wOld.numbers[0];
+            if (num) {
+              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) - oldAmt) * 100) / 100);
+            }
+
             this.addStoreWalletTransaction({
               walletId: wOld.id,
               walletName: wOld.name,
@@ -1907,7 +1992,8 @@ class LocalDatabase {
           }
         }
         if (newW && newAmt > 0) {
-          const wNew = wallets.find(x => !isSystem(x) && (x.id === newW || x.name === newW));
+          let wNew = wallets.find(x => !isSystem(x) && (x.id === newW || x.name === newW));
+          if (!wNew) wNew = wallets.find(x => x.type === 'operating' && !isSystem(x));
           if (wNew) {
             const before = wNew.balance;
             wNew.balance = Math.max(0, Math.round((wNew.balance + newAmt) * 100) / 100);
@@ -1915,6 +2001,14 @@ class LocalDatabase {
             wNew.monthlyIncome = Math.max(0, Math.round(((wNew.monthlyIncome || 0) + newAmt) * 100) / 100);
             wNew.totalReceived = Math.max(0, Math.round(((wNew.totalReceived || 0) + newAmt) * 100) / 100);
             wNew.updatedAt = new Date().toISOString();
+
+            const lineId = updatedTicket.paymentWalletNumberId || updatedTicket.paymentReceivedPhone;
+            let num = lineId && wNew.numbers ? wNew.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+            if (!num && wNew.numbers && wNew.numbers.length > 0) num = wNew.numbers.find(n => n.isPrimary) || wNew.numbers[0];
+            if (num) {
+              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) + newAmt) * 100) / 100);
+            }
+
             this.addStoreWalletTransaction({
               walletId: wNew.id,
               walletName: wNew.name,
@@ -1940,7 +2034,7 @@ class LocalDatabase {
 
     // 2. RECONCILE CUSTOMER / DEALER FINANCIAL BALANCE (الديون / الأمانات وفائض وعجز الدفع)
     const oldRequired = Number(oldTicket.requiredAmount || 0);
-    const newRequired = Number(updatedTicket.requiredAmount || 0);
+    const newRequired = isNowCanceled ? 0 : Number(updatedTicket.requiredAmount || 0);
 
     const oldOver = (oldTicket.overpaymentSettled || (oldTicket.overpaymentAmount && oldTicket.overpaymentAmount > 0))
       ? Number(oldTicket.overpaymentAmount || 0)
@@ -1950,8 +2044,8 @@ class LocalDatabase {
       : 0;
     const oldNetBalance = oldOver - oldShort;
 
-    const newOver = Math.max(0, Math.round((newAmt - newRequired) * 100) / 100);
-    const newShort = (newAmt < newRequired) ? Math.max(0, Math.round((newRequired - newAmt) * 100) / 100) : 0;
+    const newOver = isNowCanceled ? 0 : Math.max(0, Math.round((newAmt - newRequired) * 100) / 100);
+    const newShort = isNowCanceled ? 0 : ((newAmt < newRequired) ? Math.max(0, Math.round((newRequired - newAmt) * 100) / 100) : 0);
     const newNetBalance = newOver - newShort;
 
     const balanceDelta = Math.round((newNetBalance - oldNetBalance) * 100) / 100;
@@ -1978,8 +2072,8 @@ class LocalDatabase {
             balanceAfter: dealer.accountBalance,
             orderNumber: ticketNum
           });
-          if (balanceDelta > 0) this.creditTrustToSystemWallet(balanceDelta, dealer.name, 'فائض دفع بعد تعديل تذكرة تاجر', ticketNum);
-          else this.debitTrustFromSystemWallet(Math.abs(balanceDelta), dealer.name, 'عجز دفع بعد تعديل تذكرة تاجر', ticketNum);
+          if (balanceDelta > 0) this.creditTrustToSystemWallet(balanceDelta, dealer.name, 'فائض دفع بعد تعديل تذكرة تاجر', ticketNum, true);
+          else this.debitTrustFromSystemWallet(Math.abs(balanceDelta), dealer.name, 'عجز دفع بعد تعديل تذكرة تاجر', ticketNum, true);
           adjustments.push(`تسوية رصيد التاجر الأساسي: ${balanceDelta > 0 ? '+' : ''}${balanceDelta} ج`);
         }
       } else {
@@ -1997,9 +2091,59 @@ class LocalDatabase {
             balanceAfter: cust.accountBalance,
             orderNumber: ticketNum
           });
-          if (balanceDelta > 0) this.creditTrustToSystemWallet(balanceDelta, cust.name, 'فائض دفع بعد تعديل التذكرة', ticketNum);
-          else this.debitTrustFromSystemWallet(Math.abs(balanceDelta), cust.name, 'عجز دفع بعد تعديل التذكرة', ticketNum);
+          if (balanceDelta > 0) this.creditTrustToSystemWallet(balanceDelta, cust.name, 'فائض دفع بعد تعديل التذكرة', ticketNum, false);
+          else this.debitTrustFromSystemWallet(Math.abs(balanceDelta), cust.name, 'عجز دفع بعد تعديل التذكرة', ticketNum, false);
           adjustments.push(`تسوية رصيد العميل الأساسي: ${balanceDelta > 0 ? '+' : ''}${balanceDelta} ج`);
+        }
+      }
+    }
+
+    // 2b. Reconcile Customer / Dealer totalSpent and totalOrders
+    if (isNowCanceled && wasCompleted) {
+      if (isDealer) {
+        const dealer = this.getDealerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findDealerByPhone(updatedTicket.customerPhone) : undefined);
+        if (dealer) {
+          dealer.totalSpent = Math.max(0, Math.round(((dealer.totalSpent || 0) - (oldTicket.requiredAmount || 0)) * 100) / 100);
+          dealer.totalOrders = Math.max(0, (dealer.totalOrders || 0) - 1);
+          this.saveDealer(dealer);
+        }
+      } else {
+        const cust = this.getCustomerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findCustomerByPhone(updatedTicket.customerPhone) : undefined);
+        if (cust) {
+          cust.totalSpent = Math.max(0, Math.round(((cust.totalSpent || 0) - (oldTicket.requiredAmount || 0)) * 100) / 100);
+          cust.totalOrders = Math.max(0, (cust.totalOrders || 0) - 1);
+          this.saveCustomer(cust);
+        }
+      }
+    } else if (isNowCompleted && !wasCompleted) {
+      if (isDealer) {
+        const dealer = this.getDealerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findDealerByPhone(updatedTicket.customerPhone) : undefined);
+        if (dealer) {
+          dealer.totalSpent = Math.round(((dealer.totalSpent || 0) + Number(updatedTicket.requiredAmount || 0)) * 100) / 100;
+          dealer.totalOrders = (dealer.totalOrders || 0) + 1;
+          this.saveDealer(dealer);
+        }
+      } else {
+        const cust = this.getCustomerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findCustomerByPhone(updatedTicket.customerPhone) : undefined);
+        if (cust) {
+          cust.totalSpent = Math.round(((cust.totalSpent || 0) + Number(updatedTicket.requiredAmount || 0)) * 100) / 100;
+          cust.totalOrders = (cust.totalOrders || 0) + 1;
+          this.saveCustomer(cust);
+        }
+      }
+    } else if (isNowCompleted && wasCompleted && newRequired !== oldRequired) {
+      const diffReq = Math.round((newRequired - oldRequired) * 100) / 100;
+      if (isDealer) {
+        const dealer = this.getDealerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findDealerByPhone(updatedTicket.customerPhone) : undefined);
+        if (dealer) {
+          dealer.totalSpent = Math.max(0, Math.round(((dealer.totalSpent || 0) + diffReq) * 100) / 100);
+          this.saveDealer(dealer);
+        }
+      } else {
+        const cust = this.getCustomerById(updatedTicket.customerId) || (updatedTicket.customerPhone ? this.findCustomerByPhone(updatedTicket.customerPhone) : undefined);
+        if (cust) {
+          cust.totalSpent = Math.max(0, Math.round(((cust.totalSpent || 0) + diffReq) * 100) / 100);
+          this.saveCustomer(cust);
         }
       }
     }
@@ -2022,6 +2166,12 @@ class LocalDatabase {
 
         const diffCb = Math.round((targetCashback - existingCreditedCb) * 100) / 100;
         if (diffCb !== 0) {
+          dealer.cashbackBalance = Math.max(0, Math.round(((dealer.cashbackBalance || 0) + diffCb) * 100) / 100);
+          if (diffCb > 0) {
+            dealer.totalCashbackEarned = Math.round(((dealer.totalCashbackEarned || 0) + diffCb) * 100) / 100;
+          }
+          this.saveDealer(dealer);
+
           if (diffCb > 0) {
             this.addDealerUnifiedWalletTransaction({
               customerId: dealer.id,
@@ -2029,10 +2179,10 @@ class LocalDatabase {
               type: 'earned',
               operationName: `تسوية كاش باك بعد تعديل تذكرة تاجر #${ticketNum} (+${diffCb} ج)`,
               amount: diffCb,
-              balanceAfter: Math.max(0, Math.round(((dealer.cashbackBalance || 0) + diffCb) * 100) / 100),
+              balanceAfter: dealer.cashbackBalance,
               orderNumber: ticketNum
             });
-            this.creditCashbackToSystemWallet(diffCb, dealer.name, ticketNum);
+            this.creditCashbackToSystemWallet(diffCb, dealer.name, ticketNum, true);
             adjustments.push(`إضافة فارق كاش باك للتاجر: +${diffCb} ج`);
           } else {
             this.addDealerUnifiedWalletTransaction({
@@ -2041,16 +2191,13 @@ class LocalDatabase {
               type: 'debit',
               operationName: `خصم فارق كاش باك بعد تعديل تذكرة تاجر #${ticketNum} (-${Math.abs(diffCb)} ج)`,
               amount: Math.abs(diffCb),
-              balanceAfter: Math.max(0, Math.round(((dealer.cashbackBalance || 0) - Math.abs(diffCb)) * 100) / 100),
+              balanceAfter: dealer.cashbackBalance,
               orderNumber: ticketNum
             });
-            this.debitCashbackFromSystemWallet(Math.abs(diffCb), dealer.name, ticketNum);
+            this.debitCashbackFromSystemWallet(Math.abs(diffCb), dealer.name, ticketNum, true);
             adjustments.push(`استرداد فارق كاش باك من التاجر: -${Math.abs(diffCb)} ج`);
           }
-          const freshDealer = this.getDealerById(dealer.id);
-          if (freshDealer) {
-            updatedTicket.cashbackBalanceSnapshot = freshDealer.cashbackBalance;
-          }
+          updatedTicket.cashbackBalanceSnapshot = dealer.cashbackBalance;
         }
       }
     } else {
@@ -2066,6 +2213,12 @@ class LocalDatabase {
 
         const diffCb = Math.round((targetCashback - existingCreditedCb) * 100) / 100;
         if (diffCb !== 0) {
+          cust.cashbackBalance = Math.max(0, Math.round(((cust.cashbackBalance || 0) + diffCb) * 100) / 100);
+          if (diffCb > 0) {
+            cust.totalCashbackEarned = Math.round(((cust.totalCashbackEarned || 0) + diffCb) * 100) / 100;
+          }
+          this.saveCustomer(cust);
+
           if (diffCb > 0) {
             this.addUnifiedWalletTransaction({
               customerId: cust.id,
@@ -2073,10 +2226,10 @@ class LocalDatabase {
               type: 'earned',
               operationName: `تسوية كاش باك بعد تعديل التذكرة #${ticketNum} (+${diffCb} ج)`,
               amount: diffCb,
-              balanceAfter: Math.max(0, Math.round(((cust.cashbackBalance || 0) + diffCb) * 100) / 100),
+              balanceAfter: cust.cashbackBalance,
               orderNumber: ticketNum
             });
-            this.creditCashbackToSystemWallet(diffCb, cust.name, ticketNum);
+            this.creditCashbackToSystemWallet(diffCb, cust.name, ticketNum, false);
             adjustments.push(`إضافة فارق كاش باك للعميل: +${diffCb} ج`);
           } else {
             this.addUnifiedWalletTransaction({
@@ -2085,16 +2238,13 @@ class LocalDatabase {
               type: 'debit',
               operationName: `خصم فارق كاش باك بعد تعديل التذكرة #${ticketNum} (-${Math.abs(diffCb)} ج)`,
               amount: Math.abs(diffCb),
-              balanceAfter: Math.max(0, Math.round(((cust.cashbackBalance || 0) - Math.abs(diffCb)) * 100) / 100),
+              balanceAfter: cust.cashbackBalance,
               orderNumber: ticketNum
             });
-            this.debitCashbackFromSystemWallet(Math.abs(diffCb), cust.name, ticketNum);
+            this.debitCashbackFromSystemWallet(Math.abs(diffCb), cust.name, ticketNum, false);
             adjustments.push(`استرداد فارق كاش باك من العميل: -${Math.abs(diffCb)} ج`);
           }
-          const freshCust = this.getCustomerById(cust.id);
-          if (freshCust) {
-            updatedTicket.cashbackBalanceSnapshot = freshCust.cashbackBalance;
-          }
+          updatedTicket.cashbackBalanceSnapshot = cust.cashbackBalance;
         }
       }
     }
@@ -2137,7 +2287,7 @@ class LocalDatabase {
               balanceAfter: referrerDealer.referralWalletBalance,
               orderNumber: ticketNum
             });
-            this.creditReferralToSystemWallet(diffRef, referrerDealer.name, ticketNum);
+            this.creditReferralToSystemWallet(diffRef, referrerDealer.name, ticketNum, true);
             adjustments.push(`إضافة فارق عمولة إحالة للتاجر الشريك: +${diffRef} ج`);
           } else {
             this.addDealerUnifiedWalletTransaction({
@@ -2149,7 +2299,7 @@ class LocalDatabase {
               balanceAfter: referrerDealer.referralWalletBalance,
               orderNumber: ticketNum
             });
-            this.debitReferralFromSystemWallet(Math.abs(diffRef), referrerDealer.name, `خصم فارق عمولة إحالة بعد تعديل تذكرة تاجر #${ticketNum}`);
+            this.debitReferralFromSystemWallet(Math.abs(diffRef), referrerDealer.name, `خصم فارق عمولة إحالة بعد تعديل تذكرة تاجر #${ticketNum}`, true);
             adjustments.push(`استرداد فارق عمولة إحالة من التاجر الشريك: -${Math.abs(diffRef)} ج`);
           }
           this.recalculateDealerProfile(referrerDealer.id);
@@ -2190,7 +2340,7 @@ class LocalDatabase {
               balanceAfter: referrerCust.referralWalletBalance,
               orderNumber: ticketNum
             });
-            this.creditReferralToSystemWallet(diffRef, referrerCust.name, ticketNum);
+            this.creditReferralToSystemWallet(diffRef, referrerCust.name, ticketNum, false);
             adjustments.push(`إضافة فارق عمولة إحالة لشريك النجاح: +${diffRef} ج`);
           } else {
             this.addUnifiedWalletTransaction({
@@ -2202,7 +2352,7 @@ class LocalDatabase {
               balanceAfter: referrerCust.referralWalletBalance,
               orderNumber: ticketNum
             });
-            this.debitReferralFromSystemWallet(Math.abs(diffRef), referrerCust.name, `خصم فارق عمولة إحالة بعد تعديل التذكرة #${ticketNum}`);
+            this.debitReferralFromSystemWallet(Math.abs(diffRef), referrerCust.name, `خصم فارق عمولة إحالة بعد تعديل التذكرة #${ticketNum}`, false);
             adjustments.push(`استرداد فارق عمولة إحالة من شريك النجاح: -${Math.abs(diffRef)} ج`);
           }
           this.recalculateCustomerProfile(referrerCust.id);
@@ -2268,7 +2418,8 @@ class LocalDatabase {
         this.recordProfitOrLossToSystemWallet(diffProfit, ticketNum, {
           customerName: clientName,
           gameName: updatedTicket.gameName,
-          referralAllowance: updatedTicket.referralAllowance
+          referralAllowance: updatedTicket.referralAllowance,
+          isDealer
         });
       } else {
         this.debitProfitFromSystemWallet(Math.abs(diffProfit), ticketNum, {
@@ -2305,10 +2456,12 @@ class LocalDatabase {
       adjustments.push(`تسوية مصاريف التشغيل: ${diffExpenses > 0 ? '+' : ''}${diffExpenses} ج`);
     }
 
-    // 6. RECALCULATE CUSTOMER / DEALER METRICS AND PROFILES
+    // 6. SAVE UPDATED TICKET & RECALCULATE CUSTOMER / DEALER METRICS AND PROFILES
     if (isDealer) {
+      this.saveDealerTicket(updatedTicket);
       this.recalculateDealerProfile(updatedTicket.customerId || updatedTicket.customerPhone);
     } else {
+      this.saveTicket(updatedTicket);
       this.recalculateCustomerProfile(updatedTicket.customerId || updatedTicket.customerPhone);
     }
 
@@ -2449,6 +2602,11 @@ class LocalDatabase {
     }
 
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in refundTicket:', e);
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('store_wallets_updated'));
       window.dispatchEvent(new CustomEvent('dealer_tickets_updated'));
@@ -2621,8 +2779,9 @@ class LocalDatabase {
           w.updatedAt = new Date().toISOString();
 
           const lineId = cleanedTicket.paymentWalletNumberId || cleanedTicket.paymentReceivedPhone;
-          if (lineId && w.numbers && w.numbers.length > 0) {
-            const num = w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId);
+          if (w.numbers && w.numbers.length > 0) {
+            let num = lineId ? w.numbers.find(n => n.id === lineId || n.phoneNumber === lineId) : undefined;
+            if (!num) num = w.numbers.find(n => n.isPrimary) || w.numbers[0];
             if (num) {
               num.currentBalance = Math.round(((num.currentBalance || 0) + effectiveCash) * 100) / 100;
               num.dailyReceived = Math.round(((num.dailyReceived || 0) + effectiveCash) * 100) / 100;
@@ -2657,12 +2816,13 @@ class LocalDatabase {
       }
     }
 
-    // 5. Re-credit Net Profits
+    // 5. Re-credit Net Profits (routed properly for retail vs dealer)
     const profitToCredit = cleanedTicket.netProfit !== undefined ? cleanedTicket.netProfit : (cleanedTicket.totalProfitMargin || 0);
     if (profitToCredit !== 0) {
       this.recordProfitOrLossToSystemWallet(profitToCredit, cleanedTicket.ticketNumber, {
         customerName: cleanedTicket.customerName,
-        gameName: cleanedTicket.gameName
+        gameName: cleanedTicket.gameName,
+        isDealer
       });
       cleanedTicket.profitSynced = true;
     }
@@ -2686,11 +2846,11 @@ class LocalDatabase {
         if (earnedCashback > 0) {
           dealer.cashbackBalance = Math.round(((dealer.cashbackBalance || 0) + earnedCashback) * 100) / 100;
           dealer.totalCashbackEarned = Math.round(((dealer.totalCashbackEarned || 0) + earnedCashback) * 100) / 100;
-          this.creditCashbackToSystemWallet(earnedCashback, dealer.name, cleanedTicket.ticketNumber);
+          this.creditCashbackToSystemWallet(earnedCashback, dealer.name, cleanedTicket.ticketNumber, true);
         }
         if (cleanedTicket.cashbackUsed && cleanedTicket.cashbackUsed > 0) {
           dealer.cashbackBalance = Math.max(0, Math.round(((dealer.cashbackBalance || 0) - cleanedTicket.cashbackUsed) * 100) / 100);
-          this.debitCashbackFromSystemWallet(cleanedTicket.cashbackUsed, dealer.name, cleanedTicket.ticketNumber);
+          this.debitCashbackFromSystemWallet(cleanedTicket.cashbackUsed, dealer.name, cleanedTicket.ticketNumber, true);
         }
         this.saveDealer(dealer);
       }
@@ -2705,23 +2865,128 @@ class LocalDatabase {
         if (earnedCashback > 0) {
           cust.cashbackBalance = Math.round(((cust.cashbackBalance || 0) + earnedCashback) * 100) / 100;
           cust.totalCashbackEarned = Math.round(((cust.totalCashbackEarned || 0) + earnedCashback) * 100) / 100;
-          this.creditCashbackToSystemWallet(earnedCashback, cust.name, cleanedTicket.ticketNumber);
+          this.creditCashbackToSystemWallet(earnedCashback, cust.name, cleanedTicket.ticketNumber, false);
         }
         if (cleanedTicket.cashbackUsed && cleanedTicket.cashbackUsed > 0) {
           cust.cashbackBalance = Math.max(0, Math.round(((cust.cashbackBalance || 0) - cleanedTicket.cashbackUsed) * 100) / 100);
-          this.debitCashbackFromSystemWallet(cleanedTicket.cashbackUsed, cust.name, cleanedTicket.ticketNumber);
+          this.debitCashbackFromSystemWallet(cleanedTicket.cashbackUsed, cust.name, cleanedTicket.ticketNumber, false);
         }
         this.saveCustomer(cust);
       }
     }
 
-    // 8. Re-apply Trust / Overpayment
+    // 7b. Re-credit Referral Commission to Referrer
+    const referralAmtToCredit = cleanedTicket.referralCommissionEarned || cleanedTicket.pricingSnapshot?.referralAmountEGP || 0;
+    if (referralAmtToCredit > 0) {
+      if (isDealer) {
+        const dealer = this.getDealerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getDealerById(cleanedTicket.customerPhone) : undefined);
+        if (dealer && dealer.referredByCode) {
+          const dealerReferrer = this.getDealers(true).find(
+            d => d.referralCode?.trim().toUpperCase() === dealer.referredByCode?.trim().toUpperCase()
+          );
+          if (dealerReferrer) {
+            dealerReferrer.referralWalletBalance = Math.round(((dealerReferrer.referralWalletBalance || 0) + referralAmtToCredit) * 100) / 100;
+            dealerReferrer.totalReferralCommissionEarned = Math.round(((dealerReferrer.totalReferralCommissionEarned || 0) + referralAmtToCredit) * 100) / 100;
+            this.saveDealer(dealerReferrer);
+
+            this.addDealerUnifiedWalletTransaction({
+              customerId: dealerReferrer.id,
+              walletType: 'referral',
+              type: 'commission',
+              operationName: `استعادة عمولة إحالة لتذكرة تاجر مسترجعة #${cleanedTicket.ticketNumber} (+${referralAmtToCredit} ج)`,
+              amount: referralAmtToCredit,
+              balanceAfter: dealerReferrer.referralWalletBalance,
+              orderNumber: cleanedTicket.ticketNumber
+            });
+            this.creditReferralToSystemWallet(referralAmtToCredit, dealerReferrer.name, cleanedTicket.ticketNumber, true);
+          }
+        }
+      } else {
+        const cust = this.getCustomerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getCustomers(true).find(c => c.phone === cleanedTicket.customerPhone) : undefined);
+        if (cust) {
+          const allCustomers = this.getCustomers(true);
+          let referrer = cust.referrerId ? allCustomers.find(c => c.id === cust.referrerId) : null;
+          if (!referrer && cust.referredByCode) {
+            referrer = allCustomers.find(c => c.referralCode?.trim().toUpperCase() === cust.referredByCode?.trim().toUpperCase()) || null;
+          }
+          if (referrer) {
+            referrer.referralWalletBalance = Math.round(((referrer.referralWalletBalance || 0) + referralAmtToCredit) * 100) / 100;
+            referrer.totalReferralCommissionEarned = Math.round(((referrer.totalReferralCommissionEarned || 0) + referralAmtToCredit) * 100) / 100;
+            this.saveCustomer(referrer);
+
+            this.addUnifiedWalletTransaction({
+              customerId: referrer.id,
+              walletType: 'referral',
+              type: 'commission',
+              operationName: `استعادة عمولة إحالة لتذكرة مسترجعة #${cleanedTicket.ticketNumber} (+${referralAmtToCredit} ج)`,
+              amount: referralAmtToCredit,
+              balanceAfter: referrer.referralWalletBalance,
+              orderNumber: cleanedTicket.ticketNumber
+            });
+            this.creditReferralToSystemWallet(referralAmtToCredit, referrer.name, cleanedTicket.ticketNumber, false);
+          }
+        }
+      }
+    }
+
+    // 8. Re-apply Customer / Dealer Shortage Debt or Trust / Overpayment
+    if (cleanedTicket.shortageAmount && cleanedTicket.shortageAmount > 0) {
+      if (isDealer) {
+        const dealer = this.getDealerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getDealerById(cleanedTicket.customerPhone) : undefined);
+        if (dealer) {
+          dealer.accountBalance = Math.round(((dealer.accountBalance || 0) - cleanedTicket.shortageAmount) * 100) / 100;
+          dealer.balance = dealer.accountBalance;
+          this.saveDealer(dealer);
+
+          this.addDealerUnifiedWalletTransaction({
+            customerId: dealer.id,
+            walletType: 'account_balance',
+            type: 'debit',
+            operationName: `استعادة عجز تذكرة تاجر مسترجعة #${cleanedTicket.ticketNumber} (-${cleanedTicket.shortageAmount} ج)`,
+            amount: cleanedTicket.shortageAmount,
+            balanceAfter: dealer.accountBalance,
+            orderNumber: cleanedTicket.ticketNumber
+          });
+          this.debitTrustFromSystemWallet(cleanedTicket.shortageAmount, dealer.name, 'استعادة عجز تذكرة تاجر مسترجعة', cleanedTicket.ticketNumber, true);
+        }
+      } else {
+        const cust = this.getCustomerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getCustomers(true).find(c => c.phone === cleanedTicket.customerPhone) : undefined);
+        if (cust) {
+          cust.accountBalance = Math.round(((cust.accountBalance || 0) - cleanedTicket.shortageAmount) * 100) / 100;
+          cust.balance = cust.accountBalance;
+          this.saveCustomer(cust);
+
+          this.addUnifiedWalletTransaction({
+            customerId: cust.id,
+            walletType: 'account_balance',
+            type: 'debit',
+            operationName: `استعادة عجز تذكرة مسترجعة #${cleanedTicket.ticketNumber} (-${cleanedTicket.shortageAmount} ج)`,
+            amount: cleanedTicket.shortageAmount,
+            balanceAfter: cust.accountBalance,
+            orderNumber: cleanedTicket.ticketNumber
+          });
+          this.debitTrustFromSystemWallet(cleanedTicket.shortageAmount, cust.name, 'استعادة عجز تذكرة مسترجعة', cleanedTicket.ticketNumber, false);
+        }
+      }
+    }
+
     if (cleanedTicket.overpaymentAmount && cleanedTicket.overpaymentAmount > 0) {
-      this.creditTrustToSystemWallet(cleanedTicket.overpaymentAmount, cleanedTicket.customerName, 'استعادة فائض تذكرة مسترجعة', cleanedTicket.ticketNumber);
-      const cust = this.getCustomerById(cleanedTicket.customerId);
-      if (cust) {
-        cust.accountBalance = Math.round(((cust.accountBalance || 0) + cleanedTicket.overpaymentAmount) * 100) / 100;
-        this.saveCustomer(cust);
+      if (isDealer) {
+        const dealer = this.getDealerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getDealerById(cleanedTicket.customerPhone) : undefined);
+        if (dealer) {
+          dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + cleanedTicket.overpaymentAmount) * 100) / 100;
+          dealer.balance = dealer.accountBalance;
+          this.saveDealer(dealer);
+          this.creditTrustToSystemWallet(cleanedTicket.overpaymentAmount, dealer.name, 'استعادة فائض تذكرة تاجر مسترجعة', cleanedTicket.ticketNumber, true);
+        }
+      } else {
+        const cust = this.getCustomerById(cleanedTicket.customerId) || (cleanedTicket.customerPhone ? this.getCustomers(true).find(c => c.phone === cleanedTicket.customerPhone) : undefined);
+        if (cust) {
+          cust.accountBalance = Math.round(((cust.accountBalance || 0) + cleanedTicket.overpaymentAmount) * 100) / 100;
+          cust.balance = cust.accountBalance;
+          this.saveCustomer(cust);
+          this.creditTrustToSystemWallet(cleanedTicket.overpaymentAmount, cust.name, 'استعادة فائض تذكرة مسترجعة', cleanedTicket.ticketNumber, false);
+        }
       }
     }
 
@@ -2732,6 +2997,12 @@ class LocalDatabase {
     } else {
       this.saveTicket(cleanedTicket);
       this.recalculateCustomerProfile(cleanedTicket.customerId || cleanedTicket.customerPhone);
+    }
+
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in restoreTicket:', e);
     }
 
     // 10. Audit Log
@@ -10700,20 +10971,50 @@ class LocalDatabase {
   }
 
   // -------------------------------------------------------------
-  // SYSTEM WALLETS AUTOMATED INTEGRATION (Cashback, Referrals, Profits)
+  // SYSTEM WALLETS AUTOMATED INTEGRATION (Cashback, Referrals, Profits, Trust)
+  // Supports both Retail Customers (w_*) and Wholesale Dealers (mw_*)
   // -------------------------------------------------------------
-  public creditCashbackToSystemWallet(amount: number, customerName: string, ticketNumber?: string): void {
+  public creditCashbackToSystemWallet(amount: number, customerName: string, ticketNumber?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const cbWallet = wallets.find(w => w.id === 'mw_cashback' || w.systemType === 'cashback');
+      if (cbWallet) {
+        const before = cbWallet.balance;
+        cbWallet.balance = Math.round((cbWallet.balance + amount) * 100) / 100;
+        cbWallet.totalReceived = Math.round(((cbWallet.totalReceived || 0) + amount) * 100) / 100;
+        cbWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: cbWallet.id,
+          walletName: cbWallet.name,
+          type: 'cashback',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: cbWallet.balance,
+          description: `إيداع كاش باك تاجر تلقائي [${customerName}]${ticketNumber ? ` عن تذكرة #${ticketNumber}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'cashback',
+          sourceName: 'كاش باك تجار نظامي',
+          customerName
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const cbWallet = wallets.find(w => w.id === 'w_cashback' || w.systemType === 'cashback');
-    let updated = false;
-
     if (cbWallet) {
       const before = cbWallet.balance;
-      cbWallet.balance += amount;
-      cbWallet.totalReceived = (cbWallet.totalReceived || 0) + amount;
+      cbWallet.balance = Math.round((cbWallet.balance + amount) * 100) / 100;
+      cbWallet.totalReceived = Math.round(((cbWallet.totalReceived || 0) + amount) * 100) / 100;
       cbWallet.updatedAt = new Date().toISOString();
-      updated = true;
+      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
 
       this.addStoreWalletTransaction({
         walletId: cbWallet.id,
@@ -10729,25 +11030,53 @@ class LocalDatabase {
         sourceName: 'كاش باك نظامي',
         customerName
       });
-    }
-
-    if (updated) {
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
-  public debitCashbackFromSystemWallet(amount: number, customerName: string, ticketNumber?: string): void {
+  public debitCashbackFromSystemWallet(amount: number, customerName: string, ticketNumber?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const cbWallet = wallets.find(w => w.id === 'mw_cashback' || w.systemType === 'cashback');
+      if (cbWallet) {
+        const before = cbWallet.balance;
+        cbWallet.balance = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
+        cbWallet.totalWithdrawn = Math.round(((cbWallet.totalWithdrawn || 0) + amount) * 100) / 100;
+        cbWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: cbWallet.id,
+          walletName: cbWallet.name,
+          type: 'cashback',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: cbWallet.balance,
+          description: `خصم واستبدال كاش باك تاجر [${customerName}]${ticketNumber ? ` في تذكرة #${ticketNumber}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'cashback',
+          sourceName: 'استبدال كاش باك تجار',
+          customerName
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const cbWallet = wallets.find(w => w.id === 'w_cashback' || w.systemType === 'cashback');
-    let updated = false;
-
     if (cbWallet) {
       const before = cbWallet.balance;
-      cbWallet.balance = Math.max(0, cbWallet.balance - amount);
-      cbWallet.totalWithdrawn = (cbWallet.totalWithdrawn || 0) + amount;
+      cbWallet.balance = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
+      cbWallet.totalWithdrawn = Math.round(((cbWallet.totalWithdrawn || 0) + amount) * 100) / 100;
       cbWallet.updatedAt = new Date().toISOString();
-      updated = true;
+      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
 
       this.addStoreWalletTransaction({
         walletId: cbWallet.id,
@@ -10763,21 +11092,50 @@ class LocalDatabase {
         sourceName: 'استبدال كاش باك',
         customerName
       });
-    }
-
-    if (updated) {
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
-  public creditReferralToSystemWallet(amount: number, referrerName: string, ticketNumber?: string): void {
+  public creditReferralToSystemWallet(amount: number, referrerName: string, ticketNumber?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const refWallet = wallets.find(w => w.id === 'mw_referrals' || w.systemType === 'referrals');
+      if (refWallet) {
+        const before = refWallet.balance;
+        refWallet.balance = Math.round((refWallet.balance + amount) * 100) / 100;
+        refWallet.totalReceived = Math.round(((refWallet.totalReceived || 0) + amount) * 100) / 100;
+        refWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: refWallet.id,
+          walletName: refWallet.name,
+          type: 'adjustment',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: refWallet.balance,
+          description: `إيداع عمولة إحالة تاجر للشريك [${referrerName}]${ticketNumber ? ` عن تذكرة #${ticketNumber}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'referral',
+          sourceName: 'عمولة إحالة تجار'
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const refWallet = wallets.find(w => w.id === 'w_referrals' || w.systemType === 'referrals');
     if (refWallet) {
       const before = refWallet.balance;
-      refWallet.balance += amount;
-      refWallet.totalReceived = (refWallet.totalReceived || 0) + amount;
+      refWallet.balance = Math.round((refWallet.balance + amount) * 100) / 100;
+      refWallet.totalReceived = Math.round(((refWallet.totalReceived || 0) + amount) * 100) / 100;
       refWallet.updatedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
 
@@ -10794,17 +11152,49 @@ class LocalDatabase {
         sourceType: 'referral',
         sourceName: 'عمولة إحالة نظامية'
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
-  public debitReferralFromSystemWallet(amount: number, referrerName: string, description?: string): void {
+  public debitReferralFromSystemWallet(amount: number, referrerName: string, description?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const refWallet = wallets.find(w => w.id === 'mw_referrals' || w.systemType === 'referrals');
+      if (refWallet) {
+        const before = refWallet.balance;
+        refWallet.balance = Math.max(0, Math.round((refWallet.balance - amount) * 100) / 100);
+        refWallet.totalWithdrawn = Math.round(((refWallet.totalWithdrawn || 0) + amount) * 100) / 100;
+        refWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: refWallet.id,
+          walletName: refWallet.name,
+          type: 'withdrawal',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: refWallet.balance,
+          description: description || `صرف/عكس عمولة إحالة تاجر للشريك ${referrerName}`,
+          sourceType: 'referral',
+          sourceName: 'صرف عمولة إحالة تجار'
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const refWallet = wallets.find(w => w.id === 'w_referrals' || w.systemType === 'referrals');
     if (refWallet) {
       const before = refWallet.balance;
-      refWallet.balance = Math.max(0, refWallet.balance - amount);
-      refWallet.totalWithdrawn = (refWallet.totalWithdrawn || 0) + amount;
+      refWallet.balance = Math.max(0, Math.round((refWallet.balance - amount) * 100) / 100);
+      refWallet.totalWithdrawn = Math.round(((refWallet.totalWithdrawn || 0) + amount) * 100) / 100;
       refWallet.updatedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
 
@@ -10820,11 +11210,45 @@ class LocalDatabase {
         sourceType: 'referral',
         sourceName: 'صرف عمولة إحالة'
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
-  public creditTrustToSystemWallet(amount: number, customerName: string, reason: string, ticketNumber?: string): void {
+  public creditTrustToSystemWallet(amount: number, customerName: string, reason: string, ticketNumber?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const trustWallet = wallets.find(w => w.id === 'mw_debts' || w.systemType === 'trust');
+      if (trustWallet) {
+        const before = trustWallet.balance;
+        trustWallet.balance = Math.round((trustWallet.balance + amount) * 100) / 100;
+        trustWallet.totalReceived = Math.round(((trustWallet.totalReceived || 0) + amount) * 100) / 100;
+        trustWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: trustWallet.id,
+          walletName: trustWallet.name,
+          type: 'deposit',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: trustWallet.balance,
+          description: `${reason} للتاجر [${customerName}]${ticketNumber ? ` عن تذكرة #${ticketNumber}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'trust',
+          sourceName: 'أمانات وأرصدة تجار معلقة',
+          customerName
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const trustWallet = wallets.find(w => w.id === 'w_trust' || w.systemType === 'trust');
     if (trustWallet) {
@@ -10848,11 +11272,45 @@ class LocalDatabase {
         sourceName: 'أمانات وأرصدة معلقة',
         customerName
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
-  public debitTrustFromSystemWallet(amount: number, customerName: string, reason: string, ticketNumber?: string): void {
+  public debitTrustFromSystemWallet(amount: number, customerName: string, reason: string, ticketNumber?: string, isDealer?: boolean): void {
     if (amount <= 0) return;
+    if (isDealer) {
+      const wallets = this.getDealerWallets();
+      const trustWallet = wallets.find(w => w.id === 'mw_debts' || w.systemType === 'trust');
+      if (trustWallet) {
+        const before = trustWallet.balance;
+        trustWallet.balance = Math.max(0, Math.round((trustWallet.balance - amount) * 100) / 100);
+        trustWallet.totalWithdrawn = Math.round(((trustWallet.totalWithdrawn || 0) + amount) * 100) / 100;
+        trustWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, wallets);
+
+        this.addStoreWalletTransaction({
+          walletId: trustWallet.id,
+          walletName: trustWallet.name,
+          type: 'withdrawal',
+          amount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: trustWallet.balance,
+          description: `${reason} للتاجر [${customerName}]${ticketNumber ? ` عن تذكرة #${ticketNumber}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'trust',
+          sourceName: 'صرف أمانات تجار ورصيد معلق',
+          customerName
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+      }
+      return;
+    }
+
     const wallets = this.getStoreWallets();
     const trustWallet = wallets.find(w => w.id === 'w_trust' || w.systemType === 'trust');
     if (trustWallet) {
@@ -10876,15 +11334,83 @@ class LocalDatabase {
         sourceName: 'صرف أمانات ورصيد معلق',
         customerName
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
     }
   }
 
   public recordProfitOrLossToSystemWallet(
     netProfit: number,
     ticketNumber: string,
-    details?: { customerName?: string; gameName?: string; isAdjustment?: boolean; allowMultiple?: boolean; referralAllowance?: number }
+    details?: { customerName?: string; gameName?: string; isAdjustment?: boolean; allowMultiple?: boolean; referralAllowance?: number; isDealer?: boolean }
   ): void {
     if (!ticketNumber || netProfit === 0) return;
+
+    if (details?.isDealer) {
+      const dealerWallets = this.getDealerWallets();
+      const profitWallet = dealerWallets.find(w => w.id === 'mw_profits' || w.systemType === 'profits');
+      if (!profitWallet) return;
+
+      if (!details?.isAdjustment && !details?.allowMultiple) {
+        const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+        const alreadyExists = allTx.some(
+          tx => tx.walletId === profitWallet.id && (tx.referenceNumber === ticketNumber || tx.sourceTicketNumber === ticketNumber)
+        );
+        if (alreadyExists) return;
+      }
+
+      const before = profitWallet.balance;
+      if (netProfit > 0) {
+        profitWallet.balance = Math.round((profitWallet.balance + netProfit) * 100) / 100;
+        profitWallet.totalReceived = Math.round(((profitWallet.totalReceived || 0) + netProfit) * 100) / 100;
+        profitWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, dealerWallets);
+
+        this.addStoreWalletTransaction({
+          walletId: profitWallet.id,
+          walletName: profitWallet.name,
+          type: details?.isAdjustment ? 'adjustment' : 'deposit',
+          amount: netProfit,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: profitWallet.balance,
+          description: `ترحيل أرباح تذكرة تاجر #${ticketNumber}${details?.customerName ? ` — تاجر: ${details.customerName}` : ''}${details?.gameName ? ` (${details.gameName})` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'ticket',
+          sourceName: 'أرباح تذكرة تاجر',
+          sourceTicketNumber: ticketNumber,
+          customerName: details?.customerName,
+          gameName: details?.gameName
+        });
+      } else {
+        const lossAmount = Math.abs(netProfit);
+        profitWallet.balance = Math.round((profitWallet.balance - lossAmount) * 100) / 100;
+        profitWallet.totalWithdrawn = Math.round(((profitWallet.totalWithdrawn || 0) + lossAmount) * 100) / 100;
+        profitWallet.updatedAt = new Date().toISOString();
+        this.setItem(STORAGE_KEYS.DEALER_WALLETS, dealerWallets);
+
+        this.addStoreWalletTransaction({
+          walletId: profitWallet.id,
+          walletName: profitWallet.name,
+          type: 'withdrawal',
+          amount: lossAmount,
+          currency: 'EGP',
+          balanceBefore: before,
+          balanceAfter: profitWallet.balance,
+          description: `تسجيل خسارة تذكرة تاجر #${ticketNumber}${details?.customerName ? ` — تاجر: ${details.customerName}` : ''}`,
+          referenceNumber: ticketNumber,
+          sourceType: 'ticket',
+          sourceName: 'خسارة تذكرة تاجر',
+          sourceTicketNumber: ticketNumber,
+          customerName: details?.customerName
+        });
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+      }
+      return;
+    }
 
     const wallets = this.getStoreWallets();
     const profitWallet = wallets.find(w => w.id === 'w_profits' || w.systemType === 'profits' || w.type === 'profits');
@@ -10953,12 +11479,15 @@ class LocalDatabase {
         gameName: details?.gameName
       });
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+    }
   }
 
   public creditProfitToSystemWallet(
     netProfit: number,
     ticketNumber: string,
-    details?: { customerName?: string; gameName?: string; isAdjustment?: boolean; allowMultiple?: boolean }
+    details?: { customerName?: string; gameName?: string; isAdjustment?: boolean; allowMultiple?: boolean; isDealer?: boolean }
   ): void {
     this.recordProfitOrLossToSystemWallet(netProfit, ticketNumber, details);
   }
@@ -11027,12 +11556,68 @@ class LocalDatabase {
     details?: { customerName?: string; gameName?: string; performedBy?: any; reason?: string; isDealer?: boolean }
   ): void {
     if (!ticketNumber || netProfit === 0) return;
-    const wallets = this.getStoreWallets();
-    const targetWalletId = details?.isDealer ? 'mw_profits' : 'w_profits';
-    let profitWallet = wallets.find(w => w.id === targetWalletId || (details?.isDealer ? w.id === 'mw_profits' : (w.id === 'w_profits' || w.systemType === 'profits' || w.type === 'profits')));
-    if (!profitWallet && details?.isDealer) {
-      profitWallet = wallets.find(w => w.id === 'w_profits' || w.systemType === 'profits' || w.type === 'profits');
+
+    if (details?.isDealer) {
+      const dealerWallets = this.getDealerWallets();
+      const profitWallet = dealerWallets.find(w => w.id === 'mw_profits' || w.systemType === 'profits');
+      if (profitWallet) {
+        const before = profitWallet.balance;
+        if (netProfit > 0) {
+          profitWallet.balance = Math.max(0, Math.round((profitWallet.balance - netProfit) * 100) / 100);
+          profitWallet.totalReceived = Math.max(0, Math.round(((profitWallet.totalReceived || 0) - netProfit) * 100) / 100);
+          profitWallet.totalWithdrawn = Math.round(((profitWallet.totalWithdrawn || 0) + netProfit) * 100) / 100;
+          profitWallet.updatedAt = new Date().toISOString();
+          this.setItem(STORAGE_KEYS.DEALER_WALLETS, dealerWallets);
+
+          this.addStoreWalletTransaction({
+            walletId: profitWallet.id,
+            walletName: profitWallet.name,
+            type: 'adjustment',
+            amount: netProfit,
+            currency: 'EGP',
+            balanceBefore: before,
+            balanceAfter: profitWallet.balance,
+            description: details?.reason || `عكس أرباح تذكرة تاجر محذوفة #${ticketNumber}${details?.customerName ? ` — تاجر: ${details.customerName}` : ''}`,
+            referenceNumber: ticketNumber,
+            sourceType: 'ticket',
+            sourceName: 'عكس أرباح تذكرة تاجر',
+            sourceTicketNumber: ticketNumber,
+            customerName: details?.customerName,
+            gameName: details?.gameName,
+            performedBy: details?.performedBy
+          });
+        } else {
+          const lossAmount = Math.abs(netProfit);
+          profitWallet.balance = Math.round((profitWallet.balance + lossAmount) * 100) / 100;
+          profitWallet.totalReceived = Math.round(((profitWallet.totalReceived || 0) + lossAmount) * 100) / 100;
+          profitWallet.updatedAt = new Date().toISOString();
+          this.setItem(STORAGE_KEYS.DEALER_WALLETS, dealerWallets);
+
+          this.addStoreWalletTransaction({
+            walletId: profitWallet.id,
+            walletName: profitWallet.name,
+            type: 'deposit',
+            amount: lossAmount,
+            currency: 'EGP',
+            balanceBefore: before,
+            balanceAfter: profitWallet.balance,
+            description: details?.reason || `إلغاء خسارة تذكرة تاجر محذوفة #${ticketNumber}`,
+            referenceNumber: ticketNumber,
+            sourceType: 'ticket',
+            sourceName: 'إلغاء خسارة تذكرة تاجر',
+            sourceTicketNumber: ticketNumber,
+            customerName: details?.customerName
+          });
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('dealer_wallets_updated'));
+        }
+        return;
+      }
     }
+
+    const wallets = this.getStoreWallets();
+    let profitWallet = wallets.find(w => w.id === 'w_profits' || w.systemType === 'profits' || w.type === 'profits');
     if (!profitWallet) return;
 
     const before = profitWallet.balance;
@@ -11086,6 +11671,9 @@ class LocalDatabase {
         gameName: details?.gameName,
         performedBy: details?.performedBy
       });
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('store_wallets_updated'));
     }
   }
 
@@ -13153,12 +13741,16 @@ class LocalDatabase {
     ticket.status = newStatus;
     ticket.updatedAt = new Date().toISOString();
 
-    if (newStatus === 'canceled' && prevStatus === 'completed') {
+    if (newStatus === 'refunded' && prevStatus !== 'refunded') {
+      return this.refundTicket(ticketId, ticket.paymentWalletId || 'w_voda', notes || 'استرداد التذكرة', user);
+    }
+
+    if (newStatus === 'canceled' && prevStatus !== 'canceled') {
       try {
         this.rollbackTicketFinancials(
           ticket,
           user ? { id: user.id || 'usr', name: user.fullName || user.name || 'المسؤول', role: user.role || 'admin' } : undefined,
-          notes || 'إلغاء التذكرة بعد إكمالها'
+          notes || 'إلغاء التذكرة'
         );
       } catch (err) {
         console.warn('Error rolling back financials on ticket cancel:', err);
@@ -13408,6 +14000,11 @@ class LocalDatabase {
       this.saveTicket(ticket);
     }
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in refundTicket:', e);
+    }
 
     this.logAction(
       { id: user?.id || 'usr', name: user?.fullName || user?.name || 'المدير', role: 'admin', department: isDealer ? 'تذاكر التجار' : 'تذاكر الزبائن' },
@@ -13444,12 +14041,12 @@ class LocalDatabase {
     }
     if (!ticket) return { success: false, message: 'التذكرة غير موجودة' };
 
-    const originalTotalPaid = Number(ticket.receivedAmount || ticket.requiredAmount || 0);
+    const originalTotalPaid = Number(ticket.receivedAmount || ticket.requiredAmount || (ticket as any).paidAmount || (ticket as any).totalAmount || 0);
     const alreadyRefunded = Number(ticket.refundDetails?.amount || 0);
     const maxRefundable = Math.max(0, Math.round((originalTotalPaid - alreadyRefunded) * 100) / 100);
 
     // Prevent duplicate full refunds (Idempotency Guard)
-    if (maxRefundable <= 0) {
+    if (ticket.status === 'refunded' && (maxRefundable <= 0 || alreadyRefunded > 0)) {
       return {
         success: false,
         message: `التذكرة #${ticket.ticketNumber} مستردة بالكامل مسبقاً (إجمالي المسترد: ${alreadyRefunded} ج). لا يوجد رصيد متبقٍ للاسترداد.`
@@ -13550,7 +14147,7 @@ class LocalDatabase {
         orderNumber: ticket.ticketNumber
       });
 
-      this.debitCashbackFromSystemWallet(earnedCashbackPortion, ticket.customerName, ticket.ticketNumber);
+      this.debitCashbackFromSystemWallet(earnedCashbackPortion, ticket.customerName, ticket.ticketNumber, false);
     } else if (dealer && earnedCashbackPortion > 0) {
       dealer.cashbackBalance = Math.max(0, Math.round(((dealer.cashbackBalance || 0) - earnedCashbackPortion) * 100) / 100);
       dealer.totalCashbackEarned = Math.max(0, Math.round(((dealer.totalCashbackEarned || 0) - earnedCashbackPortion) * 100) / 100);
@@ -13566,7 +14163,7 @@ class LocalDatabase {
         orderNumber: ticket.ticketNumber
       });
 
-      this.debitCashbackFromSystemWallet(earnedCashbackPortion, ticket.customerName, ticket.ticketNumber);
+      this.debitCashbackFromSystemWallet(earnedCashbackPortion, ticket.customerName, ticket.ticketNumber, true);
     }
 
     // 2. Restore cashback used in payment (if customer/dealer paid with cashback) on final/proportional refund
@@ -13628,7 +14225,7 @@ class LocalDatabase {
             orderNumber: ticket.ticketNumber
           });
 
-          this.debitReferralFromSystemWallet(referralAmtPortion, referrer.name, ticket.ticketNumber);
+          this.debitReferralFromSystemWallet(referralAmtPortion, referrer.name, ticket.ticketNumber, false);
           eventBus.publish(SYSTEM_EVENTS.CUSTOMER_UPDATED, referrer);
         }
       }
@@ -13652,7 +14249,7 @@ class LocalDatabase {
             orderNumber: ticket.ticketNumber
           });
 
-          this.debitReferralFromSystemWallet(referralAmtPortion, dealerReferrer.name, ticket.ticketNumber);
+          this.debitReferralFromSystemWallet(referralAmtPortion, dealerReferrer.name, ticket.ticketNumber, true);
           eventBus.publish(SYSTEM_EVENTS.CUSTOMER_UPDATED, dealerReferrer);
           eventBus.publish('DEALER_UPDATED', dealerReferrer);
         }
@@ -13815,9 +14412,50 @@ class LocalDatabase {
     }
 
     // Revert overpayment/shortage if any (only on complete refund)
-    if (cust && ticket.overpaymentAmount && ticket.overpaymentAmount > 0 && remainingAmount === 0) {
-      cust.accountBalance = Math.max(0, Math.round(((cust.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
-      this.saveCustomer(cust);
+    if (remainingAmount === 0) {
+      if (cust && ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
+        cust.accountBalance = Math.max(0, Math.round(((cust.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
+        cust.balance = cust.accountBalance;
+        this.saveCustomer(cust);
+        this.debitTrustFromSystemWallet(ticket.overpaymentAmount, cust.name, 'عكس زيادة مدفوعات تذكرة مستردة', ticket.ticketNumber, false);
+      }
+      if (cust && ticket.shortageAmount && ticket.shortageAmount > 0) {
+        cust.accountBalance = Math.round(((cust.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
+        cust.balance = cust.accountBalance;
+        this.saveCustomer(cust);
+        this.addUnifiedWalletTransaction({
+          customerId: cust.id,
+          walletType: 'account_balance',
+          type: 'credit',
+          operationName: `إلغاء وتسوية عجز تذكرة مستردة بالكامل #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
+          amount: ticket.shortageAmount,
+          balanceAfter: cust.accountBalance,
+          orderNumber: ticket.ticketNumber
+        });
+        this.creditTrustToSystemWallet(ticket.shortageAmount, cust.name, 'تسوية عجز تذكرة مستردة', ticket.ticketNumber, false);
+      }
+
+      if (dealer && ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
+        dealer.accountBalance = Math.max(0, Math.round(((dealer.accountBalance || 0) - ticket.overpaymentAmount) * 100) / 100);
+        dealer.balance = dealer.accountBalance;
+        this.saveDealer(dealer);
+        this.debitTrustFromSystemWallet(ticket.overpaymentAmount, dealer.name, 'عكس زيادة مدفوعات تذكرة تاجر مستردة', ticket.ticketNumber, true);
+      }
+      if (dealer && ticket.shortageAmount && ticket.shortageAmount > 0) {
+        dealer.accountBalance = Math.round(((dealer.accountBalance || 0) + ticket.shortageAmount) * 100) / 100;
+        dealer.balance = dealer.accountBalance;
+        this.saveDealer(dealer);
+        this.addDealerUnifiedWalletTransaction({
+          customerId: dealer.id,
+          walletType: 'account_balance',
+          type: 'credit',
+          operationName: `إلغاء وتسوية عجز تذكرة تاجر مستردة بالكامل #${ticket.ticketNumber} (+${ticket.shortageAmount} ج)`,
+          amount: ticket.shortageAmount,
+          balanceAfter: dealer.accountBalance,
+          orderNumber: ticket.ticketNumber
+        });
+        this.creditTrustToSystemWallet(ticket.shortageAmount, dealer.name, 'تسوية عجز تذكرة تاجر مستردة', ticket.ticketNumber, true);
+      }
     }
 
     // Deduct refunded amount from operating wallet & specific line/sub-number
@@ -13933,6 +14571,11 @@ class LocalDatabase {
       this.saveTicket(ticket);
     }
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in refundTicket:', e);
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(isDealer ? 'dealer_tickets_updated' : 'tickets_updated'));
       window.dispatchEvent(new CustomEvent('store_wallets_updated'));
@@ -14075,6 +14718,11 @@ class LocalDatabase {
       this.saveTicket(ticket);
     }
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
+    try {
+      this.recalculateSystemWallets();
+    } catch (e) {
+      console.warn('Error recalculating system wallets in refundTicket:', e);
+    }
 
     this.logAction(
       { id: user?.id || 'usr', name: user?.fullName || user?.name || 'المدير', role: 'admin', department: isDealer ? 'تذاكر التجار' : 'الأمان والرقابة' },
