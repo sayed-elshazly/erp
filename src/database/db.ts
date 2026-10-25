@@ -4627,25 +4627,33 @@ class LocalDatabase {
       } else if (tx.currency === 'USD') {
         const uAmt = tx.usdAmount ?? (tx.usdExchangeRate ? tx.amount / tx.usdExchangeRate : tx.amount);
         const uRate = tx.usdExchangeRate || 50;
+        const isInternalUSD = tx.category === 'capital' || tx.category === 'shift_settlement' || tx.category === 'wallet_transfer' || tx.category === 'currency_exchange';
         if (tx.type === 'cash_in') {
           balanceUSD += uAmt;
           totalUsdPurchased += uAmt;
           totalUsdCostEGP += uAmt * uRate;
-          totalRevenueEGP += uAmt * uRate;
+          if (!isInternalUSD) {
+            totalRevenueEGP += uAmt * uRate;
+          }
         } else if (tx.type === 'cash_out') {
           balanceUSD = Math.max(0, balanceUSD - uAmt);
-          totalExpensesEGP += uAmt * uRate;
+          if (!isInternalUSD) {
+            totalExpensesEGP += uAmt * uRate;
+          }
         }
       } else {
         // EGP
+        const isInternalEGP = tx.category === 'capital' || tx.category === 'shift_settlement' || tx.category === 'wallet_transfer' || tx.category === 'currency_exchange';
         if (tx.type === 'cash_in' || (tx.type === 'settlement' && tx.amount >= 0)) {
           balanceEGP += tx.amount;
-          if (tx.category !== 'capital') {
+          if (!isInternalEGP) {
             totalRevenueEGP += tx.amount;
           }
         } else if (tx.type === 'cash_out' || (tx.type === 'settlement' && tx.amount < 0)) {
           balanceEGP -= Math.abs(tx.amount);
-          totalExpensesEGP += Math.abs(tx.amount);
+          if (!isInternalEGP) {
+            totalExpensesEGP += Math.abs(tx.amount);
+          }
         }
       }
     }
@@ -10430,14 +10438,16 @@ class LocalDatabase {
         if (pref) {
           w.accountNumber = pref.phoneNumber;
           (w as any).primaryNumberId = pref.id;
-          if (pref.currentBalance !== undefined) w.balance = pref.currentBalance;
           if (pref.dailyLimit !== undefined) w.dailyLimit = pref.dailyLimit;
           if (pref.monthlyLimit !== undefined) w.monthlyLimit = pref.monthlyLimit;
-          if (pref.dailyReceived !== undefined) w.dailyIncome = pref.dailyReceived;
-          if (pref.monthlyReceived !== undefined) w.monthlyIncome = pref.monthlyReceived;
-          if (pref.totalReceived !== undefined) w.totalReceived = pref.totalReceived;
-          if (pref.totalSent !== undefined) w.totalWithdrawn = pref.totalSent;
         }
+        // Operating wallet balance MUST reflect the aggregate balance of all its active sub-numbers/lines
+        const totalNumBalance = w.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0);
+        w.balance = Math.round(totalNumBalance * 100) / 100;
+        w.dailyIncome = Math.round(w.numbers.reduce((sum, n) => sum + (n.dailyReceived || 0), 0) * 100) / 100;
+        w.monthlyIncome = Math.round(w.numbers.reduce((sum, n) => sum + (n.monthlyReceived || 0), 0) * 100) / 100;
+        w.totalReceived = Math.round(w.numbers.reduce((sum, n) => sum + (n.totalReceived || 0), 0) * 100) / 100;
+        w.totalWithdrawn = Math.round(w.numbers.reduce((sum, n) => sum + (n.totalSent || n.monthlyWithdrawn || 0), 0) * 100) / 100;
       }
     });
 
@@ -10457,14 +10467,15 @@ class LocalDatabase {
       if (pref) {
         wallet.accountNumber = pref.phoneNumber;
         (wallet as any).primaryNumberId = pref.id;
-        if (pref.currentBalance !== undefined) wallet.balance = pref.currentBalance;
         if (pref.dailyLimit !== undefined) wallet.dailyLimit = pref.dailyLimit;
         if (pref.monthlyLimit !== undefined) wallet.monthlyLimit = pref.monthlyLimit;
-        if (pref.dailyReceived !== undefined) wallet.dailyIncome = pref.dailyReceived;
-        if (pref.monthlyReceived !== undefined) wallet.monthlyIncome = pref.monthlyReceived;
-        if (pref.totalReceived !== undefined) wallet.totalReceived = pref.totalReceived;
-        if (pref.totalSent !== undefined) wallet.totalWithdrawn = pref.totalSent;
       }
+      const totalNumBalance = wallet.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0);
+      wallet.balance = Math.round(totalNumBalance * 100) / 100;
+      wallet.dailyIncome = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.dailyReceived || 0), 0) * 100) / 100;
+      wallet.monthlyIncome = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.monthlyReceived || 0), 0) * 100) / 100;
+      wallet.totalReceived = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.totalReceived || 0), 0) * 100) / 100;
+      wallet.totalWithdrawn = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.totalSent || n.monthlyWithdrawn || 0), 0) * 100) / 100;
     }
 
     const newBalance = Number(wallet.balance) || 0;
@@ -10806,6 +10817,7 @@ class LocalDatabase {
         targetNum.operationsCount = (targetNum.operationsCount || 0) + 1;
         targetNum.lastUsedAt = new Date().toISOString();
       }
+      w.balance = Math.round(w.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0) * 100) / 100;
     }
 
     this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
@@ -10853,28 +10865,103 @@ class LocalDatabase {
 
     let targetNum: any = null;
     if (w.numbers && w.numbers.length > 0) {
-      targetNum = numberIdOrPhone 
-        ? w.numbers.find(n => n.id === numberIdOrPhone || n.phoneNumber === numberIdOrPhone)
-        : (w.numbers.find(n => n.isPrimary) || w.numbers[0]);
-      if (targetNum) {
-        targetNum.currentBalance = Math.max(0, (targetNum.currentBalance || 0) - amount);
-        targetNum.dailySent = (targetNum.dailySent || 0) + amount;
-        targetNum.monthlySent = (targetNum.monthlySent || 0) + amount;
-        targetNum.totalSent = (targetNum.totalSent || 0) + amount;
-        targetNum.monthlyWithdrawn = (targetNum.monthlyWithdrawn || 0) + amount;
-        targetNum.operationsCount = (targetNum.operationsCount || 0) + 1;
-        targetNum.lastUsedAt = new Date().toISOString();
-        if (
+      if (numberIdOrPhone) {
+        // Targeted withdrawal from specific line/number
+        targetNum = w.numbers.find(n => n.id === numberIdOrPhone || n.phoneNumber === numberIdOrPhone);
+        if (targetNum) {
+          const take = Math.min(amount, targetNum.currentBalance || 0);
+          targetNum.currentBalance = Math.max(0, (targetNum.currentBalance || 0) - take);
+          targetNum.dailySent = (targetNum.dailySent || 0) + take;
+          targetNum.monthlySent = (targetNum.monthlySent || 0) + take;
+          targetNum.totalSent = (targetNum.totalSent || 0) + take;
+          targetNum.monthlyWithdrawn = (targetNum.monthlyWithdrawn || 0) + take;
+          targetNum.operationsCount = (targetNum.operationsCount || 0) + 1;
+          targetNum.lastUsedAt = new Date().toISOString();
+
+          let remainder = amount - take;
+          if (remainder > 0) {
+            for (const n of w.numbers) {
+              if (n.id === targetNum.id || (n.currentBalance || 0) <= 0) continue;
+              const nTake = Math.min(remainder, n.currentBalance || 0);
+              n.currentBalance = Math.max(0, (n.currentBalance || 0) - nTake);
+              n.dailySent = (n.dailySent || 0) + nTake;
+              n.monthlySent = (n.monthlySent || 0) + nTake;
+              n.totalSent = (n.totalSent || 0) + nTake;
+              n.monthlyWithdrawn = (n.monthlyWithdrawn || 0) + nTake;
+              n.operationsCount = (n.operationsCount || 0) + 1;
+              n.lastUsedAt = new Date().toISOString();
+              remainder -= nTake;
+              if (remainder <= 0) break;
+            }
+          }
+        }
+      } else {
+        // General withdrawal or Shift Settlement Sweep:
+        // Distribute deduction across all sub-numbers/lines so that zero residual/phantom balance remains!
+        targetNum = w.numbers.find(n => n.isPrimary) || w.numbers[0];
+
+        if (amount >= w.balance) {
+          // Full sweep / zeroing out the wallet completely
+          for (const n of w.numbers) {
+            const lineBal = n.currentBalance || 0;
+            n.currentBalance = 0;
+            n.dailySent = (n.dailySent || 0) + lineBal;
+            n.monthlySent = (n.monthlySent || 0) + lineBal;
+            n.totalSent = (n.totalSent || 0) + lineBal;
+            n.monthlyWithdrawn = (n.monthlyWithdrawn || 0) + lineBal;
+            if (lineBal > 0) {
+              n.operationsCount = (n.operationsCount || 0) + 1;
+              n.lastUsedAt = new Date().toISOString();
+            }
+          }
+        } else {
+          // Partial withdrawal: deduct starting from primary number, then cascade through remaining numbers
+          let remainder = amount;
+          if (targetNum && (targetNum.currentBalance || 0) > 0) {
+            const take = Math.min(remainder, targetNum.currentBalance);
+            targetNum.currentBalance -= take;
+            targetNum.dailySent = (targetNum.dailySent || 0) + take;
+            targetNum.monthlySent = (targetNum.monthlySent || 0) + take;
+            targetNum.totalSent = (targetNum.totalSent || 0) + take;
+            targetNum.monthlyWithdrawn = (targetNum.monthlyWithdrawn || 0) + take;
+            targetNum.operationsCount = (targetNum.operationsCount || 0) + 1;
+            targetNum.lastUsedAt = new Date().toISOString();
+            remainder -= take;
+          }
+          if (remainder > 0) {
+            for (const n of w.numbers) {
+              if (n.id === targetNum?.id || (n.currentBalance || 0) <= 0) continue;
+              const take = Math.min(remainder, n.currentBalance);
+              n.currentBalance -= take;
+              n.dailySent = (n.dailySent || 0) + take;
+              n.monthlySent = (n.monthlySent || 0) + take;
+              n.totalSent = (n.totalSent || 0) + take;
+              n.monthlyWithdrawn = (n.monthlyWithdrawn || 0) + take;
+              n.operationsCount = (n.operationsCount || 0) + 1;
+              n.lastUsedAt = new Date().toISOString();
+              remainder -= take;
+              if (remainder <= 0) break;
+            }
+          }
+        }
+      }
+
+      if (
+        targetNum && (
           (targetNum.dailySendLimit && targetNum.dailySent >= targetNum.dailySendLimit) ||
           (targetNum.monthlySendLimit && targetNum.monthlySent >= targetNum.monthlySendLimit)
-        ) {
-          targetNum.status = 'limit_reached';
-        }
+        )
+      ) {
+        targetNum.status = 'limit_reached';
       }
     }
 
     const balanceBefore = w.balance;
-    w.balance -= amount;
+    if (w.numbers && w.numbers.length > 0) {
+      w.balance = Math.round(w.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0) * 100) / 100;
+    } else {
+      w.balance = Math.max(0, Math.round((w.balance - amount) * 100) / 100);
+    }
     w.monthlyWithdrawn = (w.monthlyWithdrawn || 0) + amount;
     w.totalWithdrawn = (w.totalWithdrawn || 0) + amount;
     w.dailySent = (w.dailySent || 0) + amount;

@@ -787,13 +787,14 @@ export const WalletProfileModal: React.FC<WalletProfileModalProps> = ({
     }));
     wallet.accountNumber = targetNum.phoneNumber;
     (wallet as any).primaryNumberId = targetNum.id;
-    if (targetNum.currentBalance !== undefined) wallet.balance = targetNum.currentBalance;
+    const totalNumBalance = wallet.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0);
+    wallet.balance = Math.round(totalNumBalance * 100) / 100;
     if (targetNum.dailyLimit !== undefined) wallet.dailyLimit = targetNum.dailyLimit;
     if (targetNum.monthlyLimit !== undefined) wallet.monthlyLimit = targetNum.monthlyLimit;
-    if (targetNum.dailyReceived !== undefined) wallet.dailyIncome = targetNum.dailyReceived;
-    if (targetNum.monthlyReceived !== undefined) wallet.monthlyIncome = targetNum.monthlyReceived;
-    if (targetNum.totalReceived !== undefined) wallet.totalReceived = targetNum.totalReceived;
-    if (targetNum.totalSent !== undefined) wallet.totalWithdrawn = targetNum.totalSent;
+    wallet.dailyIncome = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.dailyReceived || 0), 0) * 100) / 100;
+    wallet.monthlyIncome = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.monthlyReceived || 0), 0) * 100) / 100;
+    wallet.totalReceived = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.totalReceived || 0), 0) * 100) / 100;
+    wallet.totalWithdrawn = Math.round(wallet.numbers.reduce((sum, n) => sum + (n.totalSent || n.monthlyWithdrawn || 0), 0) * 100) / 100;
     wallet.updatedAt = new Date().toISOString();
 
     db.saveStoreWallet(wallet);

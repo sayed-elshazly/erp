@@ -901,6 +901,15 @@ export const ShiftSettlementModal: React.FC<ShiftSettlementModalProps> = ({
           }
         );
         safeTxId = safeTx.id;
+      } else {
+        db.depositStoreWalletFunds(
+          selectedDestination,
+          safeDepositAmount,
+          `استلام تحويل من ${transferringWallet.name} بتصفية الوردية (${refNumber})`,
+          refNumber,
+          { id: user?.id || 'owner', name: user?.fullName || 'المالك', role: user?.role || 'admin' },
+          transferNotes
+        );
       }
 
       const newRecord: ShiftWalletTransferRecord = {
@@ -1016,6 +1025,15 @@ export const ShiftSettlementModal: React.FC<ShiftSettlementModalProps> = ({
             }
           );
           safeTxId = safeTx.id;
+        } else {
+          db.depositStoreWalletFunds(
+            selectedDestination,
+            safeDepositAmount,
+            `استلام تحويل جماعي من ${w.name} بتصفية الوردية (${refNumber})`,
+            refNumber,
+            { id: user?.id || 'owner', name: user?.fullName || 'المالك', role: user?.role || 'admin' },
+            'تصفية جماعية للوردية'
+          );
         }
 
         newRecords.push({
@@ -1146,6 +1164,15 @@ export const ShiftSettlementModal: React.FC<ShiftSettlementModalProps> = ({
             }
           );
           safeTxId = safeTx.id;
+        } else {
+          db.depositStoreWalletFunds(
+            selectedDestination,
+            safeDepositAmount,
+            `استلام تحويل جماعي من ${w.name} بتصفية الوردية (${refNumber})`,
+            refNumber,
+            { id: user?.id || 'owner', name: user?.fullName || 'المالك', role: user?.role || 'admin' },
+            'تصفية جماعية للوردية'
+          );
         }
 
         allTransfers.push({
