@@ -31,3 +31,11 @@
 ### 7. Referral Hierarchy & Circular Loop Protection
 - Enforce strict Ancestry Traversal (`visitedAncestors`) during referral linking to prevent circular referral loops.
 - Referral commission payouts and vouchers must strictly separate cash withdrawals (`redeemed`) from wallet balance transfers (`adjustment`).
+
+### 8. Supabase Cloud Database & Storage Architecture Invariants
+- **Single Source of Truth**: All operational and financial records are persisted in Supabase (PostgreSQL 17).
+- **Reactive In-Memory Caching (0ms UI latency)**: All synchronous `db.getItem` operations query the in-memory cache directly, ensuring zero network lag on UI rendering. Writes (`db.setItem`) update the in-memory cache immediately and dispatch debounced asynchronous upserts to Supabase tables.
+- **Table vs System KV Mapping**: Entity collections (users, customers, dealers, tickets, wallets, transactions, competitions, etc.) map to dedicated PostgreSQL tables via `KEY_TO_TABLE_MAP`. Singleton configurations and nested tree states (e.g. `gamesTree`, `systemSettings`) map to `system_kv` as JSONB.
+- **Local Storage Decommissioning**: The application must never rely on browser `localStorage` as a primary database. Legacy storage keys (`nzm_jkr_*`, `jkr_*`) are automatically cleared upon hydration to protect against stale data and local storage quota limits.
+- **Migration Synchronization**: Any future schema modification must be authored as a versioned `.sql` file in `scripts/` before applying to Supabase.
+

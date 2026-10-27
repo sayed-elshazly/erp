@@ -1,4 +1,5 @@
 import { getDaysInMonth, calculateDailyRate, isStoreWalletTxPositive } from '../utils/formatters';
+import { supabaseStorage } from './supabaseStorage';
 import {
   initialCustomers,
   initialNotes,
@@ -315,21 +316,7 @@ class LocalDatabase {
 
   private getItem<T>(key: string, defaultValue: T): T {
     try {
-      const data = localStorage.getItem(key);
-      if (!data || data === 'null' || data === 'undefined') {
-        if (defaultValue !== null && defaultValue !== undefined) {
-          localStorage.setItem(key, JSON.stringify(defaultValue));
-        }
-        return defaultValue;
-      }
-      const parsed = JSON.parse(data);
-      if (parsed === null || parsed === undefined) {
-        if (defaultValue !== null && defaultValue !== undefined) {
-          localStorage.setItem(key, JSON.stringify(defaultValue));
-        }
-        return defaultValue;
-      }
-      return parsed;
+      return supabaseStorage.getItem(key, defaultValue);
     } catch (e) {
       console.error(`Error reading ${key} from storage`, e);
       return defaultValue;
@@ -338,8 +325,7 @@ class LocalDatabase {
 
   private setItem<T>(key: string, value: T): boolean {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
-      return true;
+      return supabaseStorage.setItem(key, value);
     } catch (e) {
       console.error(`Error saving ${key} to storage (Storage Quota or Access Error):`, e);
       try {
@@ -354,7 +340,7 @@ class LocalDatabase {
 
   // Initialization
   public initialize(): void {
-    if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.SETTINGS, null)) {
       this.setItem(STORAGE_KEYS.SETTINGS, initialSettings);
       this.setItem(STORAGE_KEYS.USERS, initialUsers);
       this.setItem(STORAGE_KEYS.CUSTOMERS, initialCustomers);
@@ -374,12 +360,12 @@ class LocalDatabase {
       this.setItem(STORAGE_KEYS.NOTIFICATIONS, initialNotifications);
     }
 
-    if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.USERS, null)) {
       this.setItem(STORAGE_KEYS.USERS, initialUsers);
     }
 
     // Initialize Phase 2 Merchants Seed if not already set
-    if (!localStorage.getItem(STORAGE_KEYS.MERCHANTS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.MERCHANTS, null)) {
       this.setItem(STORAGE_KEYS.MERCHANTS, initialMerchantsSeed);
       this.setItem(STORAGE_KEYS.MERCHANT_INVOICES, initialMerchantInvoicesSeed);
       this.setItem(STORAGE_KEYS.MERCHANT_REMINDERS, initialMerchantRemindersSeed);
@@ -390,7 +376,7 @@ class LocalDatabase {
     }
 
     // Initialize Top-Up Catalog & Wallets Seeds
-    if (!localStorage.getItem(STORAGE_KEYS.EXCHANGE_RATE)) {
+    if (!this.getItem<any>(STORAGE_KEYS.EXCHANGE_RATE, null)) {
       this.setItem(STORAGE_KEYS.EXCHANGE_RATE, initialExchangeRate);
       this.setItem(STORAGE_KEYS.STORE_WALLETS, initialStoreWallets);
       this.setItem(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
@@ -402,7 +388,7 @@ class LocalDatabase {
     }
 
     // Initialize Middleman System Seeds (V1.0)
-    if (!localStorage.getItem(STORAGE_KEYS.MIDDLEMAN_DEALS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.MIDDLEMAN_DEALS, null)) {
       this.setItem(STORAGE_KEYS.MIDDLEMAN_DEALS, initialMiddlemanDeals);
       this.setItem(STORAGE_KEYS.MIDDLEMAN_ACCOUNTS, initialMiddlemanAccounts);
       this.setItem(STORAGE_KEYS.MIDDLEMAN_NOTIFICATIONS, initialMiddlemanNotifications);
@@ -410,14 +396,14 @@ class LocalDatabase {
     }
 
     // Initialize Subscriptions Module Seeds (V1.0)
-    if (!localStorage.getItem(STORAGE_KEYS.SUBSCRIPTION_PLANS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.SUBSCRIPTION_PLANS, null)) {
       this.setItem(STORAGE_KEYS.SUBSCRIPTION_PLANS, initialSubscriptionPlans);
       this.setItem(STORAGE_KEYS.SUBSCRIPTION_PAYMENTS, initialSubscriptionPayments);
       this.setItem(STORAGE_KEYS.SUBSCRIPTION_SETTINGS, initialSubscriptionSettings);
     }
 
     // Initialize Wholesale Dealers Seeds
-    if (!localStorage.getItem(STORAGE_KEYS.DEALERS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.DEALERS, null)) {
       this.setItem(STORAGE_KEYS.DEALERS, initialDealers);
       this.setItem(STORAGE_KEYS.DEALER_NOTES, initialDealerNotes);
       this.setItem(STORAGE_KEYS.DEALER_REFERRALS, initialDealerReferrals);
@@ -426,7 +412,7 @@ class LocalDatabase {
     }
 
     // Initialize Dealers Finance Isolated Seeds
-    if (!localStorage.getItem(STORAGE_KEYS.DEALER_SAFE_TRANSACTIONS)) {
+    if (!this.getItem<any>(STORAGE_KEYS.DEALER_SAFE_TRANSACTIONS, null)) {
       this.getDealerSafeTransactions();
       this.getDealerWallets();
       this.getDealerWalletTransactions();
@@ -451,7 +437,7 @@ class LocalDatabase {
   public reconcileVaultInitialBalance(): void {
     try {
       const migrationKey = 'erp_vault_balance_reconciled_v1';
-      if (!localStorage.getItem(migrationKey)) {
+      if (!this.getItem<boolean>(migrationKey, false)) {
         const settings = this.getSettings();
         const safeTxs = this.getSafeTransactions();
         const hasSafe1 = safeTxs.some(t => t.id === 'safe_1' && t.category === 'capital' && t.amount === 25000);
@@ -459,9 +445,17 @@ class LocalDatabase {
           settings.vaultInitialBalance = 0;
           this.setItem(STORAGE_KEYS.SETTINGS, settings);
         }
-        localStorage.setItem(migrationKey, 'true');
+        this.setItem(migrationKey, true);
       }
     } catch (_) {}
+  }
+
+  public async syncWithSupabase(): Promise<void> {
+    await supabaseStorage.hydrateFromSupabase();
+  }
+
+  public clearLegacyStorage(): void {
+    supabaseStorage.clearLegacyLocalStorage();
   }
 
   // Audit Logging
