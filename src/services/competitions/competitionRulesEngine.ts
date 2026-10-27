@@ -41,13 +41,19 @@ export class CompetitionRulesEngine {
   ): RuleEvaluationResult {
     const rule = competition.rules;
     if (!rule || !rule.conditions || rule.conditions.length === 0) {
+      const anyRule = rule as any;
+      const targetCount = Number(anyRule?.rechargeCount || anyRule?.minTickets || (['recharge_count', 'speed', 'milestone', 'tickets_count'].includes(competition.type) ? 1 : 0));
+      const minAmount = Number(anyRule?.minAmount || 0);
+      const qualifying = (context.tickets || []).filter(t => (t.receivedAmount || t.requiredAmount || 0) >= minAmount);
+      const isEligible = targetCount > 0 ? (qualifying.length >= targetCount) : (qualifying.length > 0);
+
       return {
-        isEligible: true,
-        qualifyingTickets: context.tickets,
-        progressCount: context.tickets.length,
-        targetCount: 1,
-        totalAmount: context.tickets.reduce((sum, t) => sum + (t.receivedAmount || t.requiredAmount || 0), 0),
-        targetAmount: 0,
+        isEligible,
+        qualifyingTickets: qualifying,
+        progressCount: qualifying.length,
+        targetCount: targetCount || 1,
+        totalAmount: qualifying.reduce((sum, t) => sum + (t.receivedAmount || t.requiredAmount || 0), 0),
+        targetAmount: minAmount,
         conditionResults: []
       };
     }

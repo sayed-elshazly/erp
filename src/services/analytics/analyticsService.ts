@@ -17,7 +17,11 @@ import {
   MarketingKPIs,
   TicketCampaignLink,
   DailySalesSummary,
-  HourlySalesSummary
+  HourlySalesSummary,
+  ClassifiedProductItem,
+  PlatformAnalyticsItem,
+  ShiftAnalyticsItem,
+  ShiftAnalyticsSummary
 } from '../../types/analytics.types';
 
 // Storage keys for analytics persistence
@@ -224,7 +228,40 @@ export class AnalyticsService {
   }
 
   // -------------------------------------------------------------
-  // فلترة التذاكر حسب الفلتر الموحد الشامل
+  // أدوات مساعدة للحسابات المالية الحقيقية
+  // -------------------------------------------------------------
+  public static extractTicketCost(t: CustomerTicket): number {
+    let cost = t.actualCostEGP || t.totalCostAmount || 0;
+    if (!cost && t.items && t.items.length > 0) {
+      cost = t.items.reduce((s, it) => s + ((it.costPrice || 0) * (it.quantity || 1)), 0);
+    }
+    if (!cost && t.netProfit !== undefined && (t.receivedAmount || t.requiredAmount)) {
+      const rev = t.receivedAmount || t.requiredAmount || 0;
+      cost = Math.max(0, rev - t.netProfit);
+    }
+    return cost;
+  }
+
+  private static getPeriodDurationMs(tickets: CustomerTicket[]): { minDate: number; maxDate: number; duration: number } {
+    let minDate = Infinity;
+    let maxDate = -Infinity;
+    tickets.forEach(t => {
+      const ms = new Date(t.createdAt || Date.now()).getTime();
+      if (!isNaN(ms)) {
+        if (ms < minDate) minDate = ms;
+        if (ms > maxDate) maxDate = ms;
+      }
+    });
+    if (minDate === Infinity || maxDate === -Infinity) {
+      const now = Date.now();
+      return { minDate: now - 30 * 86400000, maxDate: now, duration: 30 * 86400000 };
+    }
+    const duration = Math.max(86400000, maxDate - minDate);
+    return { minDate, maxDate, duration };
+  }
+
+  // -------------------------------------------------------------
+  // فلترة التذاكر حسب الفلتر الموحد الشامل (مع استبعاد الملغاة حتماً)
   // -------------------------------------------------------------
   public static filterTickets(
     tickets: CustomerTicket[],
@@ -232,13 +269,27 @@ export class AnalyticsService {
     customersMap: Map<string, any>
   ): CustomerTicket[] {
     return tickets.filter(t => {
+      // استبعاد التذاكر الملغاة والمستردة بشكل قاطع من التقارير المالية
+      if (t.status === 'canceled' || t.status === 'refunded') return false;
+
       // 1. فلتر التاريخ
       const itemDate = (t.createdAt || '').split('T')[0];
       if (filter.startDate && itemDate < filter.startDate) return false;
       if (filter.endDate && itemDate > filter.endDate) return false;
 
-      // العميل المرتبط
-      const customer = customersMap.get(t.customerId);
+      // العميل المرتبط (مع البحث بالمعرف أو الهاتف أو الكود)
+      let customer = customersMap.get(t.customerId);
+      if (!customer && t.customerPhone) {
+        customer = customersMap.get(t.customerPhone);
+      }
+      if (!customer && t.customerPhone) {
+        for (const c of customersMap.values()) {
+          if (c && (c.phone === t.customerPhone || c.code === t.customerId)) {
+            customer = c;
+            break;
+          }
+        }
+      }
 
       // 2. فلتر نوع العميل
       if (filter.customerType !== 'all') {
@@ -276,7 +327,7 @@ export class AnalyticsService {
   }
 
   // -------------------------------------------------------------
-  // الصفحة 1: تجميع أداء الألعاب
+  // الصفحة 1: تجميع أداء الألعاب (حساب حقيقي للنمو والتكلفة)
   // -------------------------------------------------------------
   public static getGamesAnalytics(
     filteredTickets: CustomerTicket[],
@@ -292,6 +343,7 @@ export class AnalyticsService {
     }>();
 
     filteredTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
       const gName = t.gameName || (t.items && t.items[0]?.gameName) || 'ألعاب أخرى';
       const existing = map.get(gName) || {
         gameId: gName,
@@ -303,12 +355,7 @@ export class AnalyticsService {
       };
 
       const rev = t.receivedAmount || t.requiredAmount || 0;
-      let cost = t.actualCostEGP || t.totalCostAmount || 0;
-      if (!cost && t.items) {
-        cost = t.items.reduce((s, it) => s + ((it.costPrice || 0) * (it.quantity || 1)), 0);
-      }
-      if (!cost) cost = rev * 0.85;
-
+      const cost = this.extractTicketCost(t);
       const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
 
       existing.ticketsCount += 1;
@@ -319,10 +366,30 @@ export class AnalyticsService {
       map.set(gName, existing);
     });
 
+    const { minDate, duration } = this.getPeriodDurationMs(filteredTickets);
+    const priorStart = minDate - duration;
+    const priorEnd = minDate;
+
+    // تجميع الإيراد السابق الحقيقي للألعاب
+    const priorGamesRevenue = new Map<string, number>();
+    if (allTickets && allTickets.length > 0) {
+      allTickets.forEach(t => {
+        if (t.status === 'canceled' || t.status === 'refunded') return;
+        const ms = new Date(t.createdAt || Date.now()).getTime();
+        if (ms >= priorStart && ms < priorEnd) {
+          const gName = t.gameName || (t.items && t.items[0]?.gameName) || 'ألعاب أخرى';
+          const rev = t.receivedAmount || t.requiredAmount || 0;
+          priorGamesRevenue.set(gName, (priorGamesRevenue.get(gName) || 0) + rev);
+        }
+      });
+    }
+
     return Array.from(map.values()).map(g => {
       const marginPercent = g.revenue > 0 ? Math.round((g.profit / g.revenue) * 1000) / 10 : 0;
-      // Growth simulation against prior period or default
-      const growthPercent = Math.round(((g.ticketsCount % 7) * 4.2 - 6) * 10) / 10 + 12;
+      const priorRev = priorGamesRevenue.get(g.gameName);
+      const growthPercent = priorRev !== undefined && priorRev > 0
+        ? this.calculateGrowthPercentage(g.revenue, priorRev)
+        : (g.revenue > 0 ? 100 : 0);
 
       return {
         ...g,
@@ -333,10 +400,11 @@ export class AnalyticsService {
   }
 
   // -------------------------------------------------------------
-  // الصفحة 1: تجميع أداء المنتجات
+  // الصفحة 1: تجميع أداء المنتجات (حساب حقيقي للنمو والتكلفة)
   // -------------------------------------------------------------
   public static getProductsAnalytics(
-    filteredTickets: CustomerTicket[]
+    filteredTickets: CustomerTicket[],
+    allTickets: CustomerTicket[] = []
   ): ProductAnalyticsItem[] {
     const map = new Map<string, {
       productId: string;
@@ -350,6 +418,7 @@ export class AnalyticsService {
     }>();
 
     filteredTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
       const gName = t.gameName || 'عام';
 
       if (t.items && t.items.length > 0) {
@@ -368,8 +437,9 @@ export class AnalyticsService {
           };
 
           const qty = it.quantity || 1;
-          const rev = it.unitPrice ? (it.unitPrice * qty) : (it.totalPrice || (t.receivedAmount / t.items.length));
-          const cost = it.costPrice ? (it.costPrice * qty) : (rev * 0.85);
+          const rev = it.unitPrice ? (it.unitPrice * qty) : (it.totalPrice || ((t.receivedAmount || t.requiredAmount || 0) / t.items.length));
+          let cost = it.costPrice ? (it.costPrice * qty) : 0;
+          if (!cost && t.actualCostEGP) cost = (t.actualCostEGP / t.items.length) * qty;
           const prof = rev - cost;
 
           existing.ticketsCount += qty;
@@ -394,8 +464,8 @@ export class AnalyticsService {
         };
 
         const rev = t.receivedAmount || t.requiredAmount || 0;
-        const cost = t.actualCostEGP || (rev * 0.85);
-        const prof = rev - cost;
+        const cost = this.extractTicketCost(t);
+        const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
 
         existing.ticketsCount += 1;
         existing.revenue += rev;
@@ -406,9 +476,41 @@ export class AnalyticsService {
       }
     });
 
+    const { minDate, duration } = this.getPeriodDurationMs(filteredTickets);
+    const priorStart = minDate - duration;
+    const priorEnd = minDate;
+
+    // تجميع الإيراد السابق الحقيقي للباقات والمنتجات
+    const priorProdRevenue = new Map<string, number>();
+    if (allTickets && allTickets.length > 0) {
+      allTickets.forEach(t => {
+        if (t.status === 'canceled' || t.status === 'refunded') return;
+        const ms = new Date(t.createdAt || Date.now()).getTime();
+        if (ms >= priorStart && ms < priorEnd) {
+          const gName = t.gameName || 'عام';
+          if (t.items && t.items.length > 0) {
+            t.items.forEach(it => {
+              const pName = it.productName || t.gameProductName || 'شحنة';
+              const pKey = `${gName}_${pName}`;
+              const rev = it.unitPrice ? (it.unitPrice * (it.quantity || 1)) : (it.totalPrice || ((t.receivedAmount || t.requiredAmount || 0) / t.items.length));
+              priorProdRevenue.set(pKey, (priorProdRevenue.get(pKey) || 0) + rev);
+            });
+          } else {
+            const pName = t.gameProductName || 'شحنة افتراضية';
+            const pKey = `${gName}_${pName}`;
+            const rev = t.receivedAmount || t.requiredAmount || 0;
+            priorProdRevenue.set(pKey, (priorProdRevenue.get(pKey) || 0) + rev);
+          }
+        }
+      });
+    }
+
     return Array.from(map.values()).map(p => {
       const marginPercent = p.revenue > 0 ? Math.round((p.profit / p.revenue) * 1000) / 10 : 0;
-      const growthPercent = Math.round(((p.ticketsCount % 5) * 5.1 - 4) * 10) / 10 + 8;
+      const priorRev = priorProdRevenue.get(`${p.gameName}_${p.productName}`);
+      const growthPercent = priorRev !== undefined && priorRev > 0
+        ? this.calculateGrowthPercentage(p.revenue, priorRev)
+        : (p.revenue > 0 ? 100 : 0);
 
       return {
         ...p,
@@ -416,6 +518,278 @@ export class AnalyticsService {
         growthPercent
       };
     });
+  }
+
+  // -------------------------------------------------------------
+  // التصنيف الذكي للمنتجات بالذكاء المالي (الرابحة، الخاسرة، فرص الإعلانات)
+  // -------------------------------------------------------------
+  public static getClassifiedProducts(
+    products: ProductAnalyticsItem[],
+    allTickets: CustomerTicket[] = []
+  ): ClassifiedProductItem[] {
+    return products.map(p => {
+      let category: 'winning' | 'ad_worthy' | 'losing' | 'stable';
+      let categoryLabel: string;
+      let categoryReason: string;
+      let recommendation: string;
+      let actionBadgeColor: string;
+
+      // 1. فرصة إعلانية واعدة (Ad-worthy Growth): هامش فائق >= 25% مع أرباح محققة
+      if (p.marginPercent >= 25 && p.profit > 0 && p.ticketsCount >= 1) {
+        category = 'ad_worthy';
+        categoryLabel = 'فرصة إعلانية واعدة (Ad-Worthy Growth)';
+        categoryReason = `هامش ربح فائق (${p.marginPercent}%) وصافي ربح (${Math.round(p.profit).toLocaleString()} ج). استثمار التسويق هنا يحقق أعلى عائد ROI.`;
+        recommendation = 'خصص ميزانية إعلانية مدفوعة على تيك توك وفيسبوك لزيادة حجم المبيعات لهذا المنتج فوراً.';
+        actionBadgeColor = '#8b5cf6'; // purple
+      }
+      // 2. منتج رابح (Winning Product): هامش جيد >= 20% وربح إيجابي ونشاط ممتاز
+      else if (p.marginPercent >= 20 && p.profit > 0 && p.ticketsCount >= 1) {
+        category = 'winning';
+        categoryLabel = 'منتج رابح (Winning Product)';
+        categoryReason = `هامش ربحي قوي (${p.marginPercent}%) وحجم تذاكر نشط (${p.ticketsCount} باقة) يولّد تدفقات نقدية ممتازة.`;
+        recommendation = 'حافظ على استقرار التسعير الحالي وتأكد من وفرة رصيد المحافظ لتجنب نفاد المخزون.';
+        actionBadgeColor = '#10b981'; // emerald
+      }
+      // 3. منتج خاسر / مرشح للإلغاء (Delist Candidate): هامش متدنٍ جداً <= 5% أو خسائر
+      else if (p.marginPercent <= 5 || p.profit <= 0) {
+        category = 'losing';
+        categoryLabel = 'منتج خاسر / مرشح للإلغاء (Delist Candidate)';
+        categoryReason = `هامش ربح ضئيل أو سالب (${p.marginPercent}%) وصافي ربح لا يغطي المخاطر وتكلفة التشغيل.`;
+        recommendation = 'أوقف شحن هذا المنتج أو ارفع سعره فوراً، أو أعد التفاوض مع المورد لخفض التكلفة.';
+        actionBadgeColor = '#ef4444'; // rose/red
+      }
+      // 4. منتج مستقر ومتوازن (Stable Product)
+      else {
+        category = 'stable';
+        categoryLabel = 'منتج مستقر ومتوازن (Stable Product)';
+        categoryReason = `مبيعات منتظمة بهامش ربح متوازن (${p.marginPercent}%).`;
+        recommendation = 'استمر في توفير المنتج كعنصر مكمل لسلة مشتريات العملاء مع مراقبة حركة التكلفة.';
+        actionBadgeColor = '#3b82f6'; // blue
+      }
+
+      return {
+        ...p,
+        category,
+        categoryLabel,
+        categoryReason,
+        recommendation,
+        actionBadgeColor
+      };
+    });
+  }
+
+  // -------------------------------------------------------------
+  // تحليل أداء المنصات وقنوات الاستقطاب (Facebook, TikTok, etc.)
+  // -------------------------------------------------------------
+  public static getPlatformsAnalytics(
+    filteredTickets: CustomerTicket[],
+    customersMap: Map<string, any>
+  ): PlatformAnalyticsItem[] {
+    const platformLabels: Record<string, string> = {
+      facebook: 'فيسبوك (Facebook)',
+      instagram: 'إنستغرام (Instagram)',
+      tiktok: 'تيك توك (TikTok)',
+      snapchat: 'سناب شات (Snapchat)',
+      google: 'إعلانات جوجل (Google Ads)',
+      whatsapp: 'واتساب مباشر (WhatsApp Direct)',
+      in_store: 'المقر المباشر (In-Store)',
+      direct: 'مباشر بدون وسيط (Direct)',
+      referral: 'إحالات الشركاء والعملاء (Referral)',
+      other: 'قنوات أخرى (Other)'
+    };
+
+    const platformIcons: Record<string, string> = {
+      facebook: 'facebook',
+      instagram: 'instagram',
+      tiktok: 'video',
+      snapchat: 'ghost',
+      google: 'search',
+      whatsapp: 'message-circle',
+      in_store: 'store',
+      direct: 'user-check',
+      referral: 'share-2',
+      other: 'globe'
+    };
+
+    const map = new Map<string, {
+      ticketsCount: number;
+      revenue: number;
+      cost: number;
+      profit: number;
+    }>();
+
+    let totalRevenueOverall = 0;
+
+    filteredTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
+      let cust = customersMap.get(t.customerId);
+      if (!cust && t.customerPhone) {
+        cust = customersMap.get(t.customerPhone);
+      }
+      if (!cust && t.customerPhone) {
+        for (const c of customersMap.values()) {
+          if (c && (c.phone === t.customerPhone || c.code === t.customerId)) {
+            cust = c;
+            break;
+          }
+        }
+      }
+      const platKey = (cust?.source || (t as any).platformSource || 'direct').toLowerCase();
+
+      const existing = map.get(platKey) || { ticketsCount: 0, revenue: 0, cost: 0, profit: 0 };
+      const rev = t.receivedAmount || t.requiredAmount || 0;
+      const cost = this.extractTicketCost(t);
+      const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
+
+      existing.ticketsCount += 1;
+      existing.revenue += rev;
+      existing.cost += cost;
+      existing.profit += prof;
+      totalRevenueOverall += rev;
+
+      map.set(platKey, existing);
+    });
+
+    return Array.from(map.entries()).map(([platKey, data]) => {
+      const marginPercent = data.revenue > 0 ? Math.round((data.profit / data.revenue) * 1000) / 10 : 0;
+      const averageOrderValue = data.ticketsCount > 0 ? Math.round(data.revenue / data.ticketsCount) : 0;
+      const marketSharePercent = totalRevenueOverall > 0 ? Math.round((data.revenue / totalRevenueOverall) * 1000) / 10 : 0;
+
+      let aiRecommendation = '';
+      if (marginPercent >= 22 && marketSharePercent >= 20) {
+        aiRecommendation = 'القناة القيادية الرئيسية في الأرباح والحصة السوقية — حافظ على استمرارية العروض وتدعيم خدمة العملاء.';
+      } else if (marginPercent >= 25) {
+        aiRecommendation = 'قناة عالية الربحية بهامش استثنائي — ارفع ميزانية الاستقطاب وتوسيع الحملات عليها فوراً.';
+      } else if (marketSharePercent >= 30 && marginPercent < 15) {
+        aiRecommendation = 'حجم تدفق كبير بهامش ربح منخفض — قم بعمل باقات مجمعة (Bundles) لرفع متوسط قيمة التذكرة.';
+      } else if (marginPercent <= 5) {
+        aiRecommendation = 'عائد ضعيف لا يغطي تكلفة الاستقطاب — أعد ضبط الاستهداف التسويقي أو قلل الصرف الإعلاني.';
+      } else {
+        aiRecommendation = 'قناة تسويقية مستقرة تساهم في تنويع مصادر الإيرادات بشكل متوازن.';
+      }
+
+      return {
+        platformId: platKey,
+        platformName: platKey,
+        platformLabel: platformLabels[platKey] || platKey,
+        type: 'channel' as const,
+        iconName: platformIcons[platKey] || 'globe',
+        ticketsCount: data.ticketsCount,
+        revenue: data.revenue,
+        cost: data.cost,
+        profit: data.profit,
+        marginPercent,
+        averageOrderValue,
+        growthPercent: 0,
+        marketSharePercent,
+        aiRecommendation
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+  }
+
+  // -------------------------------------------------------------
+  // تحليل الورديات وضغط العمل وأداء الموظفين (Shift Analytics)
+  // -------------------------------------------------------------
+  public static getShiftsAnalytics(filteredTickets: CustomerTicket[]): ShiftAnalyticsSummary {
+    const rawSettlements = db.getSettlements() || [];
+    const dealerSettlements = db.getDealerDailySettlements() || [];
+    const allSettlements = [...rawSettlements, ...dealerSettlements];
+
+    // التوزيع الساعي 0-23
+    const hourlyMap = new Map<number, { ticketsCount: number; revenue: number }>();
+    for (let h = 0; h < 24; h++) {
+      hourlyMap.set(h, { ticketsCount: 0, revenue: 0 });
+    }
+
+    filteredTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
+      const d = new Date(t.createdAt || Date.now());
+      const h = isNaN(d.getHours()) ? 12 : d.getHours();
+      const existing = hourlyMap.get(h) || { ticketsCount: 0, revenue: 0 };
+      existing.ticketsCount += 1;
+      existing.revenue += (t.receivedAmount || t.requiredAmount || 0);
+      hourlyMap.set(h, existing);
+    });
+
+    const hourlyDistribution = Array.from(hourlyMap.entries()).map(([h, val]) => ({
+      hour: h,
+      hourLabel: `${h % 12 || 12} ${h >= 12 ? 'م' : 'ص'}`,
+      ticketsCount: val.ticketsCount,
+      revenue: val.revenue
+    }));
+
+    // أداء الموظفين
+    const empMap = new Map<string, { ticketsCount: number; revenue: number; profit: number }>();
+    filteredTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
+      const empName = t.assignedTo || t.updatedBy || (t as any).createdBy || (t as any).sellerName || 'كاشير عام';
+      const existing = empMap.get(empName) || { ticketsCount: 0, revenue: 0, profit: 0 };
+      const rev = t.receivedAmount || t.requiredAmount || 0;
+      const cost = this.extractTicketCost(t);
+      const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
+
+      existing.ticketsCount += 1;
+      existing.revenue += rev;
+      existing.profit += prof;
+      empMap.set(empName, existing);
+    });
+
+    const topPerformingEmployees = Array.from(empMap.entries()).map(([name, val]) => ({
+      name,
+      ticketsCount: val.ticketsCount,
+      revenue: val.revenue,
+      profit: val.profit
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    // تفاصيل قائمة الورديات
+    const shiftsList: ShiftAnalyticsItem[] = allSettlements.map((s, idx) => {
+      const diff = s.difference !== undefined ? s.difference : ((s.actualCash || 0) - (s.expectedCash || 0));
+      const absDiff = Math.abs(diff);
+
+      let grade: 'A+' | 'A' | 'B' | 'C' | 'Review' = 'A';
+      if (diff === 0) grade = 'A+';
+      else if (absDiff <= 10) grade = 'A';
+      else if (absDiff <= 50) grade = 'B';
+      else if (absDiff <= 150) grade = 'C';
+      else grade = 'Review';
+
+      return {
+        id: s.id || `shift_${idx}`,
+        shiftNumber: s.shiftNumber || `وردية #${idx + 1}`,
+        employeeName: s.employeeName || 'مسؤول الوردية',
+        department: s.department || 'القسم الرئيسي',
+        startTime: s.startTime || s.createdAt || new Date().toISOString(),
+        endTime: s.endTime || s.closedAt || s.createdAt || new Date().toISOString(),
+        status: s.status || 'closed',
+        ticketsCount: s.ticketIds?.length || Math.max(1, Math.round(Number(s.totalRevenue || 0) / 150)),
+        revenue: s.totalRevenue || s.actualCash || s.expectedCash || 0,
+        profit: s.totalProfit || Math.round((s.totalRevenue || 0) * 0.18),
+        expectedCash: s.expectedCash || 0,
+        actualCash: s.actualCash || 0,
+        difference: diff,
+        performanceGrade: grade
+      };
+    });
+
+    const totalShiftsCount = shiftsList.length;
+    const totalRev = shiftsList.reduce((sum, s) => sum + s.revenue, 0);
+    const totalProf = shiftsList.reduce((sum, s) => sum + s.profit, 0);
+    const totalCashVariance = shiftsList.reduce((sum, s) => sum + s.difference, 0);
+    const averageShiftRevenue = totalShiftsCount > 0 ? Math.round(totalRev / totalShiftsCount) : 0;
+    const totalTicketsAcrossShifts = shiftsList.reduce((sum, s) => sum + s.ticketsCount, 0);
+    const averageTicketsPerShift = totalShiftsCount > 0 ? Math.round(totalTicketsAcrossShifts / totalShiftsCount) : 0;
+
+    return {
+      totalShiftsCount,
+      totalRevenue: totalRev,
+      totalProfit: totalProf,
+      averageShiftRevenue,
+      averageTicketsPerShift,
+      totalCashVariance,
+      shiftsList,
+      hourlyDistribution,
+      topPerformingEmployees
+    };
   }
 
   // -------------------------------------------------------------
@@ -459,6 +833,7 @@ export class AnalyticsService {
 
     // فلترة تذاكر هذا المنتج بعينه
     const productTickets = tickets.filter(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return false;
       if (t.gameProductName === productName) return true;
       return t.items?.some(it => it.productName === productName);
     });
@@ -470,8 +845,8 @@ export class AnalyticsService {
       const hour = d.getHours();
 
       const rev = t.receivedAmount || t.requiredAmount || 0;
-      const cost = t.actualCostEGP || (rev * 0.85);
-      const prof = rev - cost;
+      const cost = AnalyticsService.extractTicketCost(t);
+      const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
 
       // الشهر
       if (monthlyTickets[dayOfMonth - 1]) {
@@ -579,6 +954,7 @@ export class AnalyticsService {
     const sortedTickets = [...tickets].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     sortedTickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
       const cId = t.customerId;
       const count = (ticketCountMap.get(cId) || 0) + 1;
       ticketCountMap.set(cId, count);
@@ -734,12 +1110,13 @@ export class AnalyticsService {
 
     // ربط التذاكر بالشركاء المحيلين
     tickets.forEach(t => {
+      if (t.status === 'canceled' || t.status === 'refunded') return;
       const customer = customers.find(c => c.id === t.customerId);
       if (customer && customer.referrerId && partnersMap.has(customer.referrerId)) {
         const item = partnersMap.get(customer.referrerId)!;
         const rev = t.receivedAmount || t.requiredAmount || 0;
-        const cost = t.actualCostEGP || (rev * 0.85);
-        const prof = rev - cost;
+        const cost = AnalyticsService.extractTicketCost(t);
+        const prof = t.netProfit !== undefined ? t.netProfit : (rev - cost);
 
         item.revenueFromReferred += rev;
         item.profitFromReferred += prof;

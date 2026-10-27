@@ -261,11 +261,19 @@ const CustomerProfileModalContent: React.FC<CustomerProfileModalContentProps> = 
       };
       const unsub1 = eventBus.subscribe(SYSTEM_EVENTS.CUSTOMER_UPDATED, handleSync);
       const unsub2 = eventBus.subscribe(SYSTEM_EVENTS.TICKET_UPDATED, handleSync);
+      const unsub3 = eventBus.subscribe(SYSTEM_EVENTS.COUPON_MUTATED, handleSync);
       window.addEventListener('storage', handleSync);
+      window.addEventListener('tickets_updated', handleSync);
+      window.addEventListener('unified_wallets_updated', handleSync);
+      window.addEventListener('coupons_updated', handleSync);
       return () => {
         unsub1();
         unsub2();
+        unsub3();
         window.removeEventListener('storage', handleSync);
+        window.removeEventListener('tickets_updated', handleSync);
+        window.removeEventListener('unified_wallets_updated', handleSync);
+        window.removeEventListener('coupons_updated', handleSync);
       };
     }
   }, [activeCustomerId, isOpen]);

@@ -60,6 +60,8 @@ export const CompetitionDetailsModal: React.FC<CompetitionDetailsModalProps> = (
 
   if (!isOpen || !competition) return null;
 
+  // Real-time synchronization of participants with live tickets
+  db.syncCompetitionParticipants(competition.id);
   const participants = db.getCompetitionParticipants(competition.id);
   const rewards = db.getCompetitionRewards().filter(r => r.competitionId === competition.id);
 

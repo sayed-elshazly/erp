@@ -124,10 +124,20 @@ export class CompetitionDeliveryService {
 
         // Update database item
         if (targetWallet.numbers && targetWallet.numbers.length > 0) {
+          let remainingToDeduct = prizeCost;
           const pref = targetWallet.numbers.find(n => n.isPrimary) || targetWallet.numbers[0];
-          if (pref) {
-            pref.currentBalance = targetWallet.balance;
+          if (pref && (pref.currentBalance || 0) >= remainingToDeduct) {
+            pref.currentBalance = Math.max(0, Math.round(((pref.currentBalance || 0) - remainingToDeduct) * 100) / 100);
+            remainingToDeduct = 0;
+          } else {
+            for (const num of targetWallet.numbers) {
+              if (remainingToDeduct <= 0) break;
+              const deduct = Math.min(num.currentBalance || 0, remainingToDeduct);
+              num.currentBalance = Math.max(0, Math.round(((num.currentBalance || 0) - deduct) * 100) / 100);
+              remainingToDeduct -= deduct;
+            }
           }
+          targetWallet.balance = Math.round(targetWallet.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0) * 100) / 100;
         }
         db.saveStoreWallet(targetWallet);
 
@@ -218,7 +228,7 @@ export class CompetitionDeliveryService {
             customerCreditAmount = reward.prizeValue;
           }
         } else if (reward.entityType === 'dealer') {
-          const dealer = db.getDealerById(reward.entityId);
+          const dealer = db.getDealerById(reward.entityId) || db.getDealers().find(d => d.id === reward.entityId || d.phone === reward.entityPhone) || (db.getCustomers().find(c => (c.id === reward.entityId || c.phone === reward.entityPhone) && (c as any).isDealer) as any);
           if (dealer) {
             const beforeCb = dealer.cashbackBalance || 0;
             dealer.cashbackBalance = Math.round((beforeCb + reward.prizeValue) * 100) / 100;
@@ -226,8 +236,8 @@ export class CompetitionDeliveryService {
             dealer.updatedAt = new Date().toISOString();
             db.saveDealer(dealer);
 
-            // Sync with w_cashback system wallet
-            db.creditCashbackToSystemWallet(reward.prizeValue, dealer.name || dealer.businessName || 'تاجر', `REW-${reward.id.slice(-6)}`);
+            // Sync with mw_cashback dealer system wallet (GEMINI.md Rule 3)
+            db.creditCashbackToSystemWallet(reward.prizeValue, dealer.name || dealer.businessName || 'تاجر', `REW-${reward.id.slice(-6)}`, true);
             customerCredited = true;
             customerCreditAmount = reward.prizeValue;
           }
@@ -346,8 +356,9 @@ export class CompetitionDeliveryService {
             if (targetWallet.numbers && targetWallet.numbers.length > 0) {
               const pref = targetWallet.numbers.find(n => n.isPrimary) || targetWallet.numbers[0];
               if (pref) {
-                pref.currentBalance = targetWallet.balance;
+                pref.currentBalance = Math.round(((pref.currentBalance || 0) + amountDeducted) * 100) / 100;
               }
+              targetWallet.balance = Math.round(targetWallet.numbers.reduce((sum, n) => sum + (n.currentBalance || 0), 0) * 100) / 100;
             }
             db.saveStoreWallet(targetWallet);
           }

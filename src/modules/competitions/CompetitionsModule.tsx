@@ -75,6 +75,7 @@ export const CompetitionsModule: React.FC<CompetitionsModuleProps> = ({
   // Load and refresh all gamification data
   const loadData = useCallback(() => {
     try {
+      db.syncAllActiveCompetitions();
       const comps = db.getCompetitions(true);
       const rews = db.getCompetitionRewards();
       const dashKpis = db.getCompetitionDashboardKPIs();
@@ -95,12 +96,22 @@ export const CompetitionsModule: React.FC<CompetitionsModuleProps> = ({
     const unsubDeliv = eventBus.subscribe(SYSTEM_EVENTS.COMPETITION_REWARD_DELIVERED, loadData);
     const unsubCancel = eventBus.subscribe(SYSTEM_EVENTS.COMPETITION_REWARD_CANCELLED, loadData);
     const unsubDraw = eventBus.subscribe(SYSTEM_EVENTS.COMPETITION_DRAW_EXECUTED, loadData);
+    const unsubTicket = eventBus.subscribe(SYSTEM_EVENTS.TICKET_UPDATED, loadData);
+
+    const onStorageOrTicket = () => loadData();
+    window.addEventListener('tickets_updated', onStorageOrTicket);
+    window.addEventListener('dealer_tickets_updated', onStorageOrTicket);
+    window.addEventListener('storage', onStorageOrTicket);
 
     return () => {
       unsubComp();
       unsubDeliv();
       unsubCancel();
       unsubDraw();
+      unsubTicket();
+      window.removeEventListener('tickets_updated', onStorageOrTicket);
+      window.removeEventListener('dealer_tickets_updated', onStorageOrTicket);
+      window.removeEventListener('storage', onStorageOrTicket);
     };
   }, [loadData]);
 

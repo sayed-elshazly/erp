@@ -1,10 +1,6 @@
-// =============================================================
-// NZM JKR TOP UP ERP — PAGE 1: Products & Games Dashboard
-// Requirements: September 2026 Specification
-// =============================================================
-
-import React, { useState } from 'react';
-import { GameAnalyticsItem, ProductAnalyticsItem } from '../../../types/analytics.types';
+import React, { useState, useMemo } from 'react';
+import { GameAnalyticsItem, ProductAnalyticsItem, ClassifiedProductItem, SmartProductCategory } from '../../../types/analytics.types';
+import { AnalyticsService } from '../../../services/analytics/analyticsService';
 import { AdvancedBarChart } from '../../../components/charts/AdvancedBarChart';
 import { Card } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
@@ -17,24 +13,47 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Sparkles,
+  Flame,
+  AlertTriangle,
+  Megaphone,
+  CheckCircle2,
   X
 } from 'lucide-react';
 
 interface Page1ProductsDashboardProps {
   games: GameAnalyticsItem[];
   products: ProductAnalyticsItem[];
+  classifiedProducts?: ClassifiedProductItem[];
   onAnalyzeProduct?: (gameName: string, productName: string) => void;
 }
 
 export const Page1ProductsDashboard: React.FC<Page1ProductsDashboardProps> = ({
   games,
   products,
+  classifiedProducts,
   onAnalyzeProduct
 }) => {
   const [selectedItem, setSelectedItem] = useState<{
     type: 'game' | 'product';
     data: GameAnalyticsItem | ProductAnalyticsItem;
   } | null>(null);
+
+  // الفلتر المختار لتصنيف المنتجات بالذكاء المالي
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | SmartProductCategory>('all');
+
+  // حساب التصنيف المالي الذكي
+  const allClassified = useMemo(() => {
+    return classifiedProducts || AnalyticsService.getClassifiedProducts(products);
+  }, [classifiedProducts, products]);
+
+  const winningCount = useMemo(() => allClassified.filter(c => c.category === 'winning').length, [allClassified]);
+  const adWorthyCount = useMemo(() => allClassified.filter(c => c.category === 'ad_worthy').length, [allClassified]);
+  const losingCount = useMemo(() => allClassified.filter(c => c.category === 'losing').length, [allClassified]);
+
+  const displayedClassified = useMemo(() => {
+    if (selectedCategoryFilter === 'all') return allClassified;
+    return allClassified.filter(c => c.category === selectedCategoryFilter);
+  }, [allClassified, selectedCategoryFilter]);
 
   // 3.1 أكثر الألعاب مبيعاً (مرتب بتذاكر الشحن)
   const topSoldGames = [...games].sort((a, b) => b.ticketsCount - a.ticketsCount);
@@ -72,8 +91,157 @@ export const Page1ProductsDashboard: React.FC<Page1ProductsDashboardProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in text-right">
-      {/* 3.1 القسم الأول: ترتيب الألعاب */}
+      {/* 3.0 القسم الذكي: التصنيف المالي وتوصيات الذكاء الاصطناعي للمنتجات */}
       <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-1">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <span>3.0 محرك الذكاء المالي وتصنيف المنتجات</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-300">
+                  خوارزمية ذكية
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400">
+                فرز تلقائي للباقات والخدمات: المنتجات الرابحة، فرص الإعلانات والميزانية، والمنتجات الخاسرة المرشحة للإلغاء
+              </p>
+            </div>
+          </div>
+
+          {/* فلتر الفئات */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+            <button
+              onClick={() => setSelectedCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                selectedCategoryFilter === 'all'
+                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-xs'
+                  : 'bg-gray-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-gray-200'
+              }`}
+            >
+              الكل ({allClassified.length})
+            </button>
+            <button
+              onClick={() => setSelectedCategoryFilter('winning')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1 ${
+                selectedCategoryFilter === 'winning'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5" />
+              <span>الرابحة ({winningCount})</span>
+            </button>
+            <button
+              onClick={() => setSelectedCategoryFilter('ad_worthy')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1 ${
+                selectedCategoryFilter === 'ad_worthy'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-purple-500/10 text-purple-600 hover:bg-purple-500/20'
+              }`}
+            >
+              <Megaphone className="w-3.5 h-3.5" />
+              <span>فرص الإعلانات ({adWorthyCount})</span>
+            </button>
+            <button
+              onClick={() => setSelectedCategoryFilter('losing')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1 ${
+                selectedCategoryFilter === 'losing'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>خاسرة للإلغاء ({losingCount})</span>
+            </button>
+          </div>
+        </div>
+
+        {/* شبكة البطاقات المصنفة */}
+        {displayedClassified.length === 0 ? (
+          <div className="p-8 text-center text-xs text-zinc-400 bg-gray-50/50 dark:bg-zinc-800/20 rounded-2xl border border-gray-100 dark:border-zinc-800">
+            لا توجد منتجات مطابقة لهذا التصنيف في الفترة المحددة
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {displayedClassified.slice(0, 6).map((item, idx) => (
+              <Card
+                key={idx}
+                className={`p-4 space-y-3 transition-all border ${
+                  item.category === 'winning'
+                    ? 'border-emerald-500/30 bg-emerald-500/[0.02] dark:bg-emerald-950/10'
+                    : item.category === 'ad_worthy'
+                    ? 'border-purple-500/30 bg-purple-500/[0.02] dark:bg-purple-950/10'
+                    : item.category === 'losing'
+                    ? 'border-rose-500/30 bg-rose-500/[0.02] dark:bg-rose-950/10'
+                    : 'border-blue-500/20 bg-blue-500/[0.01]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-black text-zinc-900 dark:text-zinc-100 line-clamp-1">
+                      {item.productName}
+                    </h4>
+                    <span className="text-[11px] text-zinc-400">{item.gameName}</span>
+                  </div>
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-black shrink-0"
+                    style={{
+                      backgroundColor: `${item.actionBadgeColor}20`,
+                      color: item.actionBadgeColor
+                    }}
+                  >
+                    {item.categoryLabel.split('(')[0].trim()}
+                  </span>
+                </div>
+
+                {/* أرقام الباقة السريعة */}
+                <div className="grid grid-cols-3 gap-2 p-2 rounded-xl bg-gray-50 dark:bg-zinc-800/50 text-[11px] font-mono text-center">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block font-sans">تذاكر</span>
+                    <span className="font-bold text-zinc-800 dark:text-zinc-200">{item.ticketsCount}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block font-sans">هامش %</span>
+                    <span className="font-bold text-purple-500">{item.marginPercent}%</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block font-sans">صافي الربح</span>
+                    <span className="font-bold text-emerald-500">{formatCurrency(item.profit)}</span>
+                  </div>
+                </div>
+
+                {/* سبب الذكاء الاصطناعي والتوصية */}
+                <div className="text-[11px] space-y-1.5 border-t border-gray-100 dark:border-zinc-800 pt-2">
+                  <p className="text-zinc-600 dark:text-zinc-300 font-medium">
+                    {item.categoryReason}
+                  </p>
+                  <div className="p-2 rounded-lg bg-white dark:bg-zinc-800 border border-gray-200/60 dark:border-zinc-700/60 text-zinc-700 dark:text-zinc-200 font-bold flex items-start gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
+                    <span>{item.recommendation}</span>
+                  </div>
+                </div>
+
+                {/* زر التحليل المباشر */}
+                {onAnalyzeProduct && (
+                  <button
+                    onClick={() => onAnalyzeProduct(item.gameName, item.productName)}
+                    className="w-full py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[11px] font-bold transition-all flex items-center justify-center gap-1"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>تحليل السلوك الزمني للباقة</span>
+                  </button>
+                )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 3.1 القسم الأول: ترتيب الألعاب */}
+      <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-[#27272A]">
         <div className="flex items-center gap-2 px-1">
           <div className="p-1.5 rounded-xl bg-orange-500/10 text-orange-500">
             <Gamepad2 className="w-5 h-5" />

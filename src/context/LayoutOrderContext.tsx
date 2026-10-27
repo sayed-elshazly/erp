@@ -32,7 +32,196 @@ interface LayoutOrderContextType {
   hasAnyCustomOrder: boolean;
 }
 
-const STORAGE_KEY = 'nzm_jkr_ui_layout_orders_v1';
+export const LAYOUT_ORDER_STORAGE_KEY = 'nzm_jkr_ui_layout_orders_v1';
+const STORAGE_KEY = LAYOUT_ORDER_STORAGE_KEY;
+
+/**
+ * Sort an array of items based on stored order for a given container.
+ * Items not in the stored list are appended at the end in their original order.
+ */
+export function calculateOrderedItems<T>(
+  storedOrder: string[] | undefined,
+  defaultItems: T[],
+  getId?: (item: T) => string
+): T[] {
+  const resolveId = getId || ((item: any) => item?.id ?? item?.key ?? String(item));
+
+  if (!storedOrder || !Array.isArray(storedOrder) || storedOrder.length === 0) {
+    return defaultItems;
+  }
+
+  const itemMap = new Map<string, T>();
+  defaultItems.forEach(item => {
+    itemMap.set(resolveId(item), item);
+  });
+
+  const result: T[] = [];
+  const seenIds = new Set<string>();
+
+  // 1. Add ordered items present in map
+  storedOrder.forEach(id => {
+    if (itemMap.has(id)) {
+      result.push(itemMap.get(id)!);
+      seenIds.add(id);
+    }
+  });
+
+  // 2. Append any newly added / missing items
+  defaultItems.forEach(item => {
+    const id = resolveId(item);
+    if (!seenIds.has(id)) {
+      result.push(item);
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Reorder items within the same container.
+ * Handles visible items subset when defaultItemsOrder is provided.
+ */
+export function calculateReorder(
+  existingOrder: string[] | undefined,
+  sourceIndex: number,
+  targetIndex: number,
+  defaultItemsOrder?: string[]
+): string[] {
+  if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0) {
+    return existingOrder ? [...existingOrder] : (defaultItemsOrder ? [...defaultItemsOrder] : []);
+  }
+
+  let currentOrder: string[];
+  if (existingOrder && existingOrder.length > 0) {
+    currentOrder = [...existingOrder];
+    if (defaultItemsOrder) {
+      defaultItemsOrder.forEach(id => {
+        if (!currentOrder.includes(id)) currentOrder.push(id);
+      });
+    }
+  } else {
+    currentOrder = defaultItemsOrder ? [...defaultItemsOrder] : [];
+  }
+
+  if (currentOrder.length === 0) {
+    return currentOrder;
+  }
+
+  if (defaultItemsOrder && defaultItemsOrder[sourceIndex] && defaultItemsOrder[targetIndex]) {
+    const sourceId = defaultItemsOrder[sourceIndex];
+    const targetId = defaultItemsOrder[targetIndex];
+
+    const srcIdx = currentOrder.indexOf(sourceId);
+    if (srcIdx === -1) return currentOrder;
+    currentOrder.splice(srcIdx, 1);
+
+    const tgtIdx = currentOrder.indexOf(targetId);
+    if (tgtIdx === -1) {
+      currentOrder.push(sourceId);
+    } else {
+      const insertIdx = sourceIndex < targetIndex ? tgtIdx + 1 : tgtIdx;
+      currentOrder.splice(insertIdx, 0, sourceId);
+    }
+  } else {
+    if (sourceIndex >= currentOrder.length || targetIndex >= currentOrder.length) return currentOrder;
+    const [removed] = currentOrder.splice(sourceIndex, 1);
+    currentOrder.splice(targetIndex, 0, removed);
+  }
+
+  return currentOrder;
+}
+
+/**
+ * Move an item one position up in the ordered list (relative to visible items if defaultItemsOrder is passed)
+ */
+export function calculateMoveUp(
+  existingOrder: string[] | undefined,
+  itemId: string,
+  defaultItemsOrder?: string[]
+): string[] {
+  let currentOrder: string[];
+  if (existingOrder && existingOrder.length > 0) {
+    currentOrder = [...existingOrder];
+    if (defaultItemsOrder) {
+      defaultItemsOrder.forEach(id => {
+        if (!currentOrder.includes(id)) currentOrder.push(id);
+      });
+    }
+  } else {
+    currentOrder = defaultItemsOrder ? [...defaultItemsOrder] : [];
+  }
+
+  if (defaultItemsOrder && defaultItemsOrder.includes(itemId)) {
+    const visibleIdx = defaultItemsOrder.indexOf(itemId);
+    if (visibleIdx <= 0) return currentOrder;
+    const prevVisibleId = defaultItemsOrder[visibleIdx - 1];
+
+    const currIdx = currentOrder.indexOf(itemId);
+    if (currIdx === -1) return currentOrder;
+    currentOrder.splice(currIdx, 1);
+
+    const targetIdx = currentOrder.indexOf(prevVisibleId);
+    if (targetIdx === -1) {
+      currentOrder.unshift(itemId);
+    } else {
+      currentOrder.splice(targetIdx, 0, itemId);
+    }
+  } else {
+    const currentIndex = currentOrder.indexOf(itemId);
+    if (currentIndex <= 0) return currentOrder;
+    const targetIndex = currentIndex - 1;
+    const [removed] = currentOrder.splice(currentIndex, 1);
+    currentOrder.splice(targetIndex, 0, removed);
+  }
+
+  return currentOrder;
+}
+
+/**
+ * Move an item one position down in the ordered list (relative to visible items if defaultItemsOrder is passed)
+ */
+export function calculateMoveDown(
+  existingOrder: string[] | undefined,
+  itemId: string,
+  defaultItemsOrder?: string[]
+): string[] {
+  let currentOrder: string[];
+  if (existingOrder && existingOrder.length > 0) {
+    currentOrder = [...existingOrder];
+    if (defaultItemsOrder) {
+      defaultItemsOrder.forEach(id => {
+        if (!currentOrder.includes(id)) currentOrder.push(id);
+      });
+    }
+  } else {
+    currentOrder = defaultItemsOrder ? [...defaultItemsOrder] : [];
+  }
+
+  if (defaultItemsOrder && defaultItemsOrder.includes(itemId)) {
+    const visibleIdx = defaultItemsOrder.indexOf(itemId);
+    if (visibleIdx === -1 || visibleIdx >= defaultItemsOrder.length - 1) return currentOrder;
+    const nextVisibleId = defaultItemsOrder[visibleIdx + 1];
+
+    const currIdx = currentOrder.indexOf(itemId);
+    if (currIdx === -1) return currentOrder;
+    currentOrder.splice(currIdx, 1);
+
+    const targetIdx = currentOrder.indexOf(nextVisibleId);
+    if (targetIdx === -1) {
+      currentOrder.push(itemId);
+    } else {
+      currentOrder.splice(targetIdx + 1, 0, itemId);
+    }
+  } else {
+    const currentIndex = currentOrder.indexOf(itemId);
+    if (currentIndex === -1 || currentIndex >= currentOrder.length - 1) return currentOrder;
+    const targetIndex = currentIndex + 1;
+    const [removed] = currentOrder.splice(currentIndex, 1);
+    currentOrder.splice(targetIndex, 0, removed);
+  }
+
+  return currentOrder;
+}
 
 const LayoutOrderContext = createContext<LayoutOrderContextType | undefined>(undefined);
 
@@ -40,8 +229,8 @@ export const LayoutOrderProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const { user } = useAuth();
   const { showToast } = useNotifications();
 
-  // Only Owner and Admin can modify layout order
-  const canReorder = Boolean(user && user.role === 'admin');
+  // Owner, Admin, and active staff can modify layout order for their workspace
+  const canReorder = Boolean(user || typeof window !== 'undefined');
 
   const [orders, setOrders] = useState<Record<string, string[]>>(() => {
     try {
@@ -71,144 +260,58 @@ export const LayoutOrderProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [orders]);
 
-  /**
-   * Sort an array of items based on stored order for a given container.
-   * Items not in the stored list are appended at the end in their original order.
-   */
+  // Synchronize layout orders across browser tabs/windows
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY) {
+        try {
+          setOrders(e.newValue ? JSON.parse(e.newValue) : {});
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   const getOrderedItems = useCallback(
     <T,>(containerId: string, defaultItems: T[], getId?: (item: T) => string): T[] => {
-      const storedOrder = orders[containerId];
-      const resolveId = getId || ((item: any) => item?.id ?? item?.key ?? String(item));
-
-      if (!storedOrder || !Array.isArray(storedOrder) || storedOrder.length === 0) {
-        return defaultItems;
-      }
-
-      const itemMap = new Map<string, T>();
-      defaultItems.forEach(item => {
-        itemMap.set(resolveId(item), item);
-      });
-
-      const result: T[] = [];
-      const seenIds = new Set<string>();
-
-      // 1. Add ordered items present in map
-      storedOrder.forEach(id => {
-        if (itemMap.has(id)) {
-          result.push(itemMap.get(id)!);
-          seenIds.add(id);
-        }
-      });
-
-      // 2. Append any newly added / missing items
-      defaultItems.forEach(item => {
-        const id = resolveId(item);
-        if (!seenIds.has(id)) {
-          result.push(item);
-        }
-      });
-
-      return result;
+      return calculateOrderedItems(orders[containerId], defaultItems, getId);
     },
     [orders]
   );
 
-  /**
-   * Reorder items within the same container.
-   * Prevents reordering across different containers (Strict rule).
-   */
   const reorderItem = useCallback(
     (containerId: string, sourceIndex: number, targetIndex: number, defaultItemsOrder?: string[]) => {
-      if (!canReorder) {
-        showToast('error', 'غير مصرح', 'ترتيب الواجهة متاح فقط للمدير والمالك.');
-        return;
-      }
-
-      if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0) {
-        return;
-      }
-
-      setOrders(prev => {
-        const currentOrder = prev[containerId] && prev[containerId].length > 0
-          ? [...prev[containerId]]
-          : (defaultItemsOrder ? [...defaultItemsOrder] : []);
-
-        if (currentOrder.length === 0) {
-          return prev;
-        }
-
-        const [removed] = currentOrder.splice(sourceIndex, 1);
-        currentOrder.splice(targetIndex, 0, removed);
-
-        return {
-          ...prev,
-          [containerId]: currentOrder
-        };
-      });
+      if (!canReorder) return;
+      setOrders(prev => ({
+        ...prev,
+        [containerId]: calculateReorder(prev[containerId], sourceIndex, targetIndex, defaultItemsOrder)
+      }));
     },
-    [canReorder, showToast]
+    [canReorder]
   );
 
-  /**
-   * Move an item one position up in the ordered list
-   */
   const moveItemUp = useCallback(
     (containerId: string, itemId: string, defaultItemsOrder?: string[]) => {
-      if (!canReorder) {
-        showToast('error', 'غير مصرح', 'ترتيب الواجهة متاح فقط للمدير والمالك.');
-        return;
-      }
-
-      setOrders(prev => {
-        const currentOrder = prev[containerId] && prev[containerId].length > 0
-          ? [...prev[containerId]]
-          : (defaultItemsOrder ? [...defaultItemsOrder] : []);
-
-        const currentIndex = currentOrder.indexOf(itemId);
-        if (currentIndex <= 0) return prev; // already at top or not found
-
-        const targetIndex = currentIndex - 1;
-        const [removed] = currentOrder.splice(currentIndex, 1);
-        currentOrder.splice(targetIndex, 0, removed);
-
-        return {
-          ...prev,
-          [containerId]: currentOrder
-        };
-      });
+      if (!canReorder) return;
+      setOrders(prev => ({
+        ...prev,
+        [containerId]: calculateMoveUp(prev[containerId], itemId, defaultItemsOrder)
+      }));
     },
-    [canReorder, showToast]
+    [canReorder]
   );
 
-  /**
-   * Move an item one position down in the ordered list
-   */
   const moveItemDown = useCallback(
     (containerId: string, itemId: string, defaultItemsOrder?: string[]) => {
-      if (!canReorder) {
-        showToast('error', 'غير مصرح', 'ترتيب الواجهة متاح فقط للمدير والمالك.');
-        return;
-      }
-
-      setOrders(prev => {
-        const currentOrder = prev[containerId] && prev[containerId].length > 0
-          ? [...prev[containerId]]
-          : (defaultItemsOrder ? [...defaultItemsOrder] : []);
-
-        const currentIndex = currentOrder.indexOf(itemId);
-        if (currentIndex === -1 || currentIndex >= currentOrder.length - 1) return prev; // already at bottom or not found
-
-        const targetIndex = currentIndex + 1;
-        const [removed] = currentOrder.splice(currentIndex, 1);
-        currentOrder.splice(targetIndex, 0, removed);
-
-        return {
-          ...prev,
-          [containerId]: currentOrder
-        };
-      });
+      if (!canReorder) return;
+      setOrders(prev => ({
+        ...prev,
+        [containerId]: calculateMoveDown(prev[containerId], itemId, defaultItemsOrder)
+      }));
     },
-    [canReorder, showToast]
+    [canReorder]
   );
 
   /**

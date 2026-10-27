@@ -124,8 +124,14 @@ export class CompetitionService {
         compToSave
       );
     }
-
     eventBus.publish(SYSTEM_EVENTS.COMPETITIONS_UPDATED, compToSave);
+
+    if (compToSave.status === 'finished') {
+      try {
+        this.syncCompetitionParticipants(compToSave.id);
+      } catch (e) {}
+    }
+
     return compToSave;
   }
 
@@ -202,9 +208,9 @@ export class CompetitionService {
 
   public static saveParticipant(participant: CompetitionParticipant): void {
     const all = this.getParticipants();
-    const index = all.findIndex(p => p.id === participant.id);
+    const index = all.findIndex(p => p.id === participant.id || (p.competitionId === participant.competitionId && p.entityId === participant.entityId));
     if (index >= 0) {
-      all[index] = participant;
+      all[index] = { ...all[index], ...participant };
     } else {
       all.unshift(participant);
     }
@@ -226,7 +232,9 @@ export class CompetitionService {
     const compStart = new Date(`${comp.startDate}T${comp.startTime || '00:00'}:00`).getTime();
     const compEnd = new Date(`${comp.endDate}T${comp.endTime || '23:59'}:59`).getTime();
 
-    const audienceType = comp.targetAudience?.type || 'all_customers';
+    const audienceType = typeof comp.targetAudience === 'string'
+      ? comp.targetAudience
+      : (comp.targetAudience?.type || 'all_customers');
     const isCustomerEligible = [
       'all_customers',
       'selected_customers',
@@ -247,6 +255,9 @@ export class CompetitionService {
       'custom_group'
     ].includes(audienceType);
 
+    const autoEnrollTypes = ['recharge_count', 'top_spenders', 'speed', 'milestone', 'tickets_count'];
+    const isAutoEnrollComp = autoEnrollTypes.includes(comp.type);
+
     // 1. Synchronize Customers (if audience includes customers)
     if (isCustomerEligible) {
       customers.forEach(cust => {
@@ -255,6 +266,11 @@ export class CompetitionService {
           comp.targetAudience.selectedIds &&
           !comp.targetAudience.selectedIds.includes(cust.id)
         ) {
+          return;
+        }
+
+        // For non-auto-enroll competitions (like lucky_draw, interactive, registration), only sync existing participants
+        if (!isAutoEnrollComp && !participants.some(p => p.entityId === cust.id)) {
           return;
         }
 
@@ -324,6 +340,11 @@ export class CompetitionService {
           return;
         }
 
+        // For non-auto-enroll competitions (like lucky_draw, interactive, registration), only sync existing participants
+        if (!isAutoEnrollComp && !participants.some(p => p.entityId === d.id)) {
+          return;
+        }
+
         const dealerTickets = allTickets.filter(t => {
           if ((t as any).dealerId !== d.id && t.customerId !== d.id && (t as any).dealerPhone !== d.phone && t.customerPhone !== d.phone) return false;
           if (t.status !== 'completed') return false;
@@ -385,6 +406,11 @@ export class CompetitionService {
           comp.targetAudience.selectedIds &&
           !comp.targetAudience.selectedIds.includes(m.id)
         ) {
+          return;
+        }
+
+        // For non-auto-enroll competitions, only sync existing participants
+        if (!isAutoEnrollComp && !participants.some(p => p.entityId === m.id)) {
           return;
         }
 
@@ -460,9 +486,145 @@ export class CompetitionService {
       });
     }
 
+    // Automatic Reward Generation for eligible participants in milestone/non-draw competitions
+    // Note: For top_spenders, rankings change continuously with every ticket until finished;
+    // rewards are generated once the competition concludes (status === 'finished').
+    const isTopSpendersRunning = comp.type === 'top_spenders' && comp.status !== 'finished';
+    if (!isTopSpendersRunning && comp.type !== 'recharge_draw' && (comp.type as string) !== 'lucky_draw' && comp.prizes && comp.prizes.length > 0) {
+      const allRewards = this.getRewards();
+      let rewardsAdded = false;
+
+      participants.forEach(p => {
+        if (!p.isEligible) {
+          p.isWinner = false;
+          // Auto-cancel any un-delivered pending rewards if participant lost eligibility (e.g., ticket refunded or canceled)
+          const pendingRewards = allRewards.filter(
+            r => r.competitionId === comp.id && r.entityId === p.entityId && r.status === 'pending'
+          );
+          if (pendingRewards.length > 0) {
+            pendingRewards.forEach(r => {
+              r.status = 'cancelled';
+              r.cancellationReason = 'إلغاء الاستحقاق تلقائياً بسبب إلغاء أو استرداد تذكرة شحن وفقدان شروط الأهلية';
+              r.cancelledAt = new Date().toISOString();
+            });
+            rewardsAdded = true;
+          }
+          return;
+        }
+
+        // Check if reward already generated for this participant in this competition
+        const alreadyAwarded = allRewards.some(
+          r => r.competitionId === comp.id && r.entityId === p.entityId && r.status !== 'cancelled'
+        );
+        if (alreadyAwarded) {
+          p.isWinner = true;
+          return;
+        }
+
+        // Determine prize
+        let prize = comp.prizes[0];
+        if (comp.type === 'top_spenders') {
+          if (comp.maxWinners && (p.currentRank || 999) > comp.maxWinners) {
+            return; // Not in top winners
+          }
+          prize = comp.prizes.find(pz => pz.rankOrTier === p.currentRank) || comp.prizes[0];
+        }
+
+        if (prize) {
+          p.isWinner = true;
+          p.assignedPrizeId = prize.id;
+          p.assignedPrizeName = prize.name;
+
+          const rewardRecord: CompetitionReward = {
+            id: `rew_auto_${Date.now()}_${p.id.slice(-4)}_${Math.random().toString(36).substr(2, 3)}`,
+            competitionId: comp.id,
+            competitionTitle: comp.title,
+            participantId: p.id,
+            entityType: p.entityType,
+            entityId: p.entityId,
+            entityName: p.entityName,
+            entityPhone: p.entityPhone,
+            prizeId: prize.id,
+            prizeName: prize.name,
+            prizeType: prize.type,
+            prizeValue: prize.value,
+            currency: prize.currency,
+            costEGP: prize.costEGP,
+            sourceWalletId: prize.sourceWalletId,
+            sourceWalletName: prize.sourceWalletName,
+            productId: prize.productId,
+            productName: prize.productName,
+            status: 'pending',
+            idempotencyKey: `comp_deliv_${p.id}_${prize.id}`,
+            snapshot: {
+              competitionName: comp.title,
+              prizeName: prize.name,
+              prizeValue: prize.value,
+              currency: prize.currency,
+              productName: prize.productName,
+              walletName: prize.sourceWalletName,
+              costEGP: prize.costEGP,
+              customerName: p.entityName,
+              rulesSummary: `استحقاق تلقائي لشروط مسابقة [${comp.title}] (${comp.type})`
+            },
+            createdAt: new Date().toISOString()
+          };
+
+          allRewards.unshift(rewardRecord);
+          rewardsAdded = true;
+
+          try {
+            db.addNotification({
+              type: 'success',
+              title: '🎁 استحقاق مكافأة مسابقة تلقائياً',
+              message: `تهانينا! حقق (${p.entityName}) شروط مسابقة [${comp.title}] وأصبح مستحقاً لجائزة [${prize.name}].`,
+              linkSection: 'competitions',
+              metadata: { competitionId: comp.id, rewardId: rewardRecord.id }
+            });
+          } catch (e) {}
+        }
+      });
+
+      if (rewardsAdded) {
+        this.setRewards(allRewards);
+        eventBus.publish(SYSTEM_EVENTS.COMPETITIONS_UPDATED);
+      }
+    }
+
     // Save
     const allOther = this.getParticipants().filter(p => p.competitionId !== competitionId);
     this.setItem(STORAGE_KEYS.COMPETITION_PARTICIPANTS, [...participants, ...allOther]);
+  }
+
+  /**
+   * Synchronize all active competitions against live tickets across the entire ERP
+   */
+  public static syncAllActiveCompetitions(): void {
+    const competitions = this.getCompetitions(true);
+    const now = new Date();
+
+    competitions.forEach(c => {
+      if (c.status === 'archived' || c.status === 'cancelled') return;
+
+      // Auto-activate scheduled competitions whose start time has arrived
+      if (c.status === 'scheduled') {
+        const start = new Date(`${c.startDate}T${c.startTime || '00:00'}:00`);
+        if (now >= start) {
+          c.status = 'active';
+          this.saveCompetition(c);
+        }
+      }
+
+      // Auto-finish active competitions whose end time has passed
+      if (c.status === 'active') {
+        const end = new Date(`${c.endDate}T${c.endTime || '23:59'}:59`);
+        if (now > end && c.type !== 'recharge_draw') {
+          c.status = 'finished';
+          this.saveCompetition(c);
+        }
+        this.syncCompetitionParticipants(c.id);
+      }
+    });
   }
 
   /**

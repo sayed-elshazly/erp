@@ -1296,6 +1296,13 @@ class LocalDatabase {
       console.warn('Error recalculating system wallets in saveTicket:', e);
     }
 
+    // Automatically synchronize all active competitions with new/updated ticket
+    try {
+      CompetitionService.syncAllActiveCompetitions();
+    } catch (e) {
+      console.warn('Error syncing competitions in saveTicket:', e);
+    }
+
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
     try {
       this.recalculateSystemWallets();
@@ -2625,6 +2632,13 @@ class LocalDatabase {
       this.recalculateSystemWallets();
     } catch (e) {
       console.warn('Error recalculating system wallets in saveDealerTicket:', e);
+    }
+
+    // Automatically synchronize all active competitions with new/updated dealer ticket
+    try {
+      CompetitionService.syncAllActiveCompetitions();
+    } catch (e) {
+      console.warn('Error syncing competitions in saveDealerTicket:', e);
     }
 
     eventBus.publish(SYSTEM_EVENTS.TICKET_UPDATED, ticket);
@@ -4287,9 +4301,9 @@ class LocalDatabase {
             createdAt: new Date().toISOString()
           });
           if (deltaCb > 0) {
-            this.creditCashbackToSystemWallet(deltaCb, updatedDealer.name, tkt.ticketNumber);
+            this.creditCashbackToSystemWallet(deltaCb, updatedDealer.name, tkt.ticketNumber, true);
           } else {
-            this.debitCashbackFromSystemWallet(Math.abs(deltaCb), updatedDealer.name, tkt.ticketNumber);
+            this.debitCashbackFromSystemWallet(Math.abs(deltaCb), updatedDealer.name, tkt.ticketNumber, true);
           }
           healedTxs = true;
         }
@@ -12424,7 +12438,7 @@ class LocalDatabase {
                   orderNumber: t.ticketNumber
                 });
                 if (!t.cashbackSynced) {
-                  this.creditCashbackToSystemWallet(cbAmount, dealer.name, t.ticketNumber);
+                  this.creditCashbackToSystemWallet(cbAmount, dealer.name, t.ticketNumber, true);
                   t.cashbackSynced = true;
                 }
               }
@@ -12970,6 +12984,9 @@ class LocalDatabase {
     }
 
     eventBus.publish(SYSTEM_EVENTS.COUPON_MUTATED, coupon);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('coupons_updated'));
+    }
   }
 
   public deleteCoupon(id: string, user?: any): void {
@@ -12985,6 +13002,9 @@ class LocalDatabase {
     }
 
     eventBus.publish(SYSTEM_EVENTS.COUPON_MUTATED, { id });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('coupons_updated'));
+    }
   }
 
   public reactivateCoupon(couponId: string, user?: any): boolean {
@@ -13863,7 +13883,7 @@ class LocalDatabase {
           balanceAfter: dealer.accountBalance,
           orderNumber: ticket.ticketNumber
         });
-        this.debitTrustFromSystemWallet(ticket.accountBalanceUsed, dealer.name, 'سداد تذكرة تاجر من رصيد الأمانات والديون عند التسليم', ticket.ticketNumber);
+        this.debitTrustFromSystemWallet(ticket.accountBalanceUsed, dealer.name, 'سداد تذكرة تاجر من رصيد الأمانات والديون عند التسليم', ticket.ticketNumber, true);
         ticket.creditDeducted = true;
       }
       if (!ticket.overpaymentSettled && ticket.overpaymentAmount && ticket.overpaymentAmount > 0) {
@@ -13912,7 +13932,7 @@ class LocalDatabase {
           orderNumber: ticket.ticketNumber
         });
         if (!ticket.cashbackSynced) {
-          this.creditCashbackToSystemWallet(cashbackAmount, dealer.name, ticket.ticketNumber);
+          this.creditCashbackToSystemWallet(cashbackAmount, dealer.name, ticket.ticketNumber, true);
           ticket.cashbackSynced = true;
         }
         const updatedDealer = this.getDealerById(dealer.id);
@@ -13955,7 +13975,7 @@ class LocalDatabase {
               balanceAfter: dealerReferrer.referralWalletBalance,
               orderNumber: ticket.ticketNumber
             });
-            this.creditReferralToSystemWallet(commAmount, dealerReferrer.name, ticket.ticketNumber);
+            this.creditReferralToSystemWallet(commAmount, dealerReferrer.name, ticket.ticketNumber, true);
             ticket.referralCommissionProcessed = true;
             ticket.referralCommissionEarned = commAmount;
             ticket.referralPercent = effectiveRate;
@@ -14123,13 +14143,14 @@ class LocalDatabase {
     }
     this.setItem(STORAGE_KEYS.DEPOSIT_BONDS_FIFO, bonds);
 
-    // Record profit or loss to w_profits System Wallet if not already recorded
+    // Record profit or loss to system wallets (mw_profits for dealer, w_profits for retail)
     if (!ticket.profitSynced) {
       const net = ticket.netProfit !== undefined ? ticket.netProfit : (ticket.totalProfitMargin || 0);
       this.recordProfitOrLossToSystemWallet(net, ticket.ticketNumber, {
         customerName: ticket.customerName,
         gameName: ticket.items?.[0]?.gameName,
-        referralAllowance: ticket.referralAllowance
+        referralAllowance: ticket.referralAllowance,
+        isDealer: isDealerTicket
       });
       ticket.profitSynced = true;
     }
@@ -17770,6 +17791,10 @@ class LocalDatabase {
 
   public getCompetitionDashboardKPIs(): CompetitionsDashboardKPIs {
     return CompetitionService.calculateDashboardKPIs();
+  }
+
+  public syncAllActiveCompetitions(): void {
+    CompetitionService.syncAllActiveCompetitions();
   }
 }
 

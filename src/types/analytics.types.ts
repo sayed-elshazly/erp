@@ -144,3 +144,61 @@ export interface MarketingKPIs {
   totalNetProfit: number;
   overallROI: number; // %
 }
+
+// AI Product Categorization & Intelligence Models
+export type SmartProductCategory = 'winning' | 'losing' | 'ad_worthy' | 'stable';
+
+export interface ClassifiedProductItem extends ProductAnalyticsItem {
+  category: SmartProductCategory;
+  categoryLabel: string;
+  categoryReason: string;
+  recommendation: string;
+  actionBadgeColor: string;
+}
+
+export interface PlatformAnalyticsItem {
+  platformId: string;
+  platformName: string;
+  platformLabel: string;
+  type: 'channel' | 'game_system';
+  iconName?: string;
+  ticketsCount: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  marginPercent: number;
+  averageOrderValue: number;
+  growthPercent: number;
+  marketSharePercent: number;
+  aiRecommendation: string;
+}
+
+export interface ShiftAnalyticsItem {
+  id: string;
+  shiftNumber: string;
+  employeeName: string;
+  department: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  ticketsCount: number;
+  revenue: number;
+  profit: number;
+  expectedCash: number;
+  actualCash: number;
+  difference: number;
+  performanceGrade: 'A+' | 'A' | 'B' | 'C' | 'Review';
+}
+
+export interface ShiftAnalyticsSummary {
+  totalShiftsCount: number;
+  totalRevenue: number;
+  totalProfit: number;
+  averageShiftRevenue: number;
+  averageTicketsPerShift: number;
+  totalCashVariance: number;
+  shiftsList: ShiftAnalyticsItem[];
+  hourlyDistribution: { hour: number; hourLabel: string; ticketsCount: number; revenue: number }[];
+  topPerformingEmployees: { name: string; ticketsCount: number; revenue: number; profit: number }[];
+}
+

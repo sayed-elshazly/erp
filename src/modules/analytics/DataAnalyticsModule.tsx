@@ -13,6 +13,7 @@ import {
   UnifiedAnalyticsFilterState,
   MarketingCampaign
 } from '../../types/analytics.types';
+import { eventBus, SYSTEM_EVENTS } from '../../services/eventBus';
 import { AnalyticsService } from '../../services/analytics/analyticsService';
 import { UnifiedAnalyticsFilterBar } from './UnifiedAnalyticsFilterBar';
 import { Page1ProductsDashboard } from './pages/Page1ProductsDashboard';
@@ -20,6 +21,8 @@ import { Page2ProductBehavior } from './pages/Page2ProductBehavior';
 import { Page3CustomerAnalytics } from './pages/Page3CustomerAnalytics';
 import { Page4PartnerAnalytics } from './pages/Page4PartnerAnalytics';
 import { Page5MarketingROI } from './pages/Page5MarketingROI';
+import { Page6PlatformsAnalytics } from './pages/Page6PlatformsAnalytics';
+import { Page7ShiftsAnalytics } from './pages/Page7ShiftsAnalytics';
 import { exportToExcel } from '../../utils/excelExport';
 import { Breadcrumb } from '../../components/common/Breadcrumb';
 import { Card } from '../../components/common/Card';
@@ -39,7 +42,9 @@ import {
   FileSpreadsheet,
   FileText,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Globe,
+  Clock
 } from 'lucide-react';
 
 interface DataAnalyticsModuleProps {
@@ -59,8 +64,8 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
   const canExport = isOwnerOrAdmin;
   const canSendOffers = isOwnerOrAdmin;
 
-  // Active page: 1 to 5
-  const [activePage, setActivePage] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // Active page: 1 to 7
+  const [activePage, setActivePage] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7>(1);
 
   // Selected product state for Page 2 drilldown
   const [targetedProduct, setTargetedProduct] = useState<{ gameName: string; productName: string } | null>(null);
@@ -106,12 +111,30 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
 
   useEffect(() => {
     loadData();
+    const handleUpdate = () => loadData();
+    const unsubTicket = eventBus.subscribe(SYSTEM_EVENTS.TICKET_UPDATED, handleUpdate);
+    window.addEventListener('tickets_updated', handleUpdate);
+    window.addEventListener('dealer_tickets_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    window.addEventListener('settlements_updated', handleUpdate);
+
+    return () => {
+      unsubTicket();
+      window.removeEventListener('tickets_updated', handleUpdate);
+      window.removeEventListener('dealer_tickets_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('settlements_updated', handleUpdate);
+    };
   }, [department]);
 
-  // Customers quick lookup map
+  // Customers quick lookup map (indexed by ID, Phone, and Code)
   const customersMap = useMemo(() => {
     const map = new Map<string, any>();
-    customers.forEach(c => map.set(c.id, c));
+    customers.forEach(c => {
+      if (c.id) map.set(c.id, c);
+      if (c.phone) map.set(c.phone, c);
+      if (c.code) map.set(c.code, c);
+    });
     return map;
   }, [customers]);
 
@@ -126,8 +149,12 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
   }, [filteredTickets, tickets]);
 
   const productsAnalytics = useMemo(() => {
-    return AnalyticsService.getProductsAnalytics(filteredTickets);
-  }, [filteredTickets]);
+    return AnalyticsService.getProductsAnalytics(filteredTickets, tickets);
+  }, [filteredTickets, tickets]);
+
+  const classifiedProducts = useMemo(() => {
+    return AnalyticsService.getClassifiedProducts(productsAnalytics, tickets);
+  }, [productsAnalytics, tickets]);
 
   // Data for Page 3: Customer Segments
   const customerSegments = useMemo(() => {
@@ -143,6 +170,16 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
   const marketingData = useMemo(() => {
     return AnalyticsService.getMarketingAnalytics(campaigns, filteredTickets);
   }, [campaigns, filteredTickets]);
+
+  // Data for Page 6: Platforms
+  const platformsAnalytics = useMemo(() => {
+    return AnalyticsService.getPlatformsAnalytics(filteredTickets, customersMap);
+  }, [filteredTickets, customersMap]);
+
+  // Data for Page 7: Shifts
+  const shiftsAnalytics = useMemo(() => {
+    return AnalyticsService.getShiftsAnalytics(filteredTickets);
+  }, [filteredTickets]);
 
   // Handle switching to Page 2 for a specific product
   const handleAnalyzeProduct = (gameName: string, productName: string) => {
@@ -228,6 +265,31 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
         'العائد التسويقي ROI %': `${c.roi}%`
       }));
       fileName = 'JKR_Marketing_ROI_Analytics';
+    } else if (activePage === 6) {
+      exportRows = platformsAnalytics.map(p => ({
+        'المنصة': p.platformLabel,
+        'عدد العمليات': p.ticketsCount,
+        'الإيراد (جنيه)': p.revenue,
+        'صافي الربح (جنيه)': p.profit,
+        'الهامش %': `${p.marginPercent}%`,
+        'متوسط الطلب (جنيه)': p.averageOrderValue,
+        'الحصة السوقية %': `${p.marketSharePercent}%`,
+        'التوصية الذكية': p.aiRecommendation
+      }));
+      fileName = 'JKR_Platforms_Analytics';
+    } else if (activePage === 7) {
+      exportRows = shiftsAnalytics.shiftsList.map(s => ({
+        'رقم الوردية': s.shiftNumber,
+        'الموظف المسئول': s.employeeName,
+        'القسم': s.department,
+        'عدد التذاكر': s.ticketsCount,
+        'الإيراد (جنيه)': s.revenue,
+        'المتوقع دفترياً': s.expectedCash,
+        'المسلّم فعلياً': s.actualCash,
+        'الفارق النقدي': s.difference,
+        'التقييم': s.performanceGrade
+      }));
+      fileName = 'JKR_Shifts_Analytics';
     } else {
       exportRows = filteredTickets.slice(0, 100).map(t => ({
         'رقم التذكرة': t.ticketNumber,
@@ -618,6 +680,30 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
             <Megaphone className="w-4 h-4 text-pink-500" />
             <span>الصفحة 5: فعالية التسويق (Marketing ROI)</span>
           </button>
+
+          <button
+            onClick={() => setActivePage(6)}
+            className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 shrink-0 ${
+              activePage === 6
+                ? 'bg-orange-500 text-white shadow-xs'
+                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-gray-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-cyan-500" />
+            <span>الصفحة 6: تحليل المنصات والقنوات</span>
+          </button>
+
+          <button
+            onClick={() => setActivePage(7)}
+            className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 shrink-0 ${
+              activePage === 7
+                ? 'bg-orange-500 text-white shadow-xs'
+                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-gray-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Clock className="w-4 h-4 text-amber-500" />
+            <span>الصفحة 7: تحليل الورديات والموظفين</span>
+          </button>
         </div>
       </Card>
 
@@ -634,12 +720,13 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
         totalCount={tickets.length}
       />
 
-      {/* Dynamic View of the 5 Pages */}
+      {/* Dynamic View of the Pages */}
       <div className="pt-2">
         {activePage === 1 && (
           <Page1ProductsDashboard
             games={gamesAnalytics}
             products={productsAnalytics}
+            classifiedProducts={classifiedProducts}
             onAnalyzeProduct={handleAnalyzeProduct}
           />
         )}
@@ -672,6 +759,18 @@ export const DataAnalyticsModule: React.FC<DataAnalyticsModuleProps> = ({
             marketingData={marketingData}
             onSaveCampaign={handleSaveCampaign}
             canExport={canExport}
+          />
+        )}
+
+        {activePage === 6 && (
+          <Page6PlatformsAnalytics
+            platforms={platformsAnalytics}
+          />
+        )}
+
+        {activePage === 7 && (
+          <Page7ShiftsAnalytics
+            shiftSummary={shiftsAnalytics}
           />
         )}
       </div>

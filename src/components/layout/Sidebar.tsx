@@ -43,6 +43,7 @@ import { db } from '../../database/db';
 import { useLayoutOrder } from '../../context/LayoutOrderContext';
 import { SortableDraggableItem } from '../common/SortableDraggableItem';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { TabsReorderModal } from '../common/TabsReorderModal';
 
 interface SidebarProps {
   activeSection: string;
@@ -80,6 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isOwner = user?.role === 'admin';
   const { getOrderedItems, resetAllOrders, canReorder, moveItemUp, moveItemDown } = useLayoutOrder();
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isTabsReorderModalOpen, setIsTabsReorderModalOpen] = useState(false);
 
   // Live in-progress middleman deals count
   const [inProgressDealsCount, setInProgressDealsCount] = useState<number>(() => {
@@ -897,16 +899,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Reset Layout Order Button (Owner / Admin Only) */}
+      {/* Reorder & Reset Layout Order Buttons */}
       {canReorder && (
-        <div className="p-2 border-t border-gray-200/90 dark:border-[#23232C] bg-gray-50/70 dark:bg-[#131317]/80 relative z-10 backdrop-blur-md">
+        <div className="p-2 border-t border-gray-200/90 dark:border-[#23232C] bg-gray-50/70 dark:bg-[#131317]/80 relative z-10 backdrop-blur-md space-y-1">
+          <button
+            type="button"
+            onClick={() => setIsTabsReorderModalOpen(true)}
+            className="w-full py-1.5 px-2.5 rounded-xl text-[11px] font-bold text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-orange-500/25 shadow-2xs"
+            title="تخصيص وإعادة ترتيب التبويبات والقوائم"
+          >
+            <Sliders className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+            {!isCollapsed && <span>تخصيص وترتيب التبويبات</span>}
+          </button>
+
           <button
             type="button"
             onClick={() => setIsResetConfirmOpen(true)}
-            className="w-full py-1.5 px-2.5 rounded-xl text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-transparent hover:border-rose-500/20"
+            className="w-full py-1 px-2 rounded-xl text-[10px] font-bold text-zinc-500 dark:text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors flex items-center justify-center gap-1 cursor-pointer border border-transparent hover:border-rose-500/20"
             title="إعادة ترتيب الأقسام والتبويبات إلى الوضع الافتراضي الأصلي للنظام"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+            <RotateCcw className="w-3 h-3 text-rose-500 shrink-0" />
             {!isCollapsed && <span>إعادة الترتيب الافتراضي</span>}
           </button>
         </div>
@@ -943,6 +955,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         confirmText="نعم، إعادة الترتيب الأصلي"
         cancelText="إلغاء"
         variant="warning"
+      />
+
+      {/* Tabs Reorder Modal */}
+      <TabsReorderModal
+        isOpen={isTabsReorderModalOpen}
+        onClose={() => setIsTabsReorderModalOpen(false)}
       />
     </aside>
   );

@@ -18,3 +18,16 @@
 - Status transitions to `canceled` or `refunded` must immediately invoke full financial rollbacks (`rollbackTicketFinancials` or `refundTicket`).
 - Forgiving shortage debt (`shortageAmount`) and reversing overpayment (`overpaymentAmount`) is mandatory on full refund or cancellation.
 - Reconciling ticket edits (`reconcileTicketEdit`) must persist updated tickets to storage BEFORE invoking customer/dealer profile recalculations to prevent auto-reversal of cashback.
+
+### 5. Manual Pricing & FIFO Cost Invariants
+- Custom manual prices (`customSellingPriceEGP`, `dealerCustomSellingPriceEGP`) strictly take precedence over formulaic price calculations when `isManualPricing` is active.
+- Global catalog recalculations must preserve manual product cost prices (`costPriceEGP`) and avoid zeroing them out.
+
+### 6. Product Wallet Cascading & Multi-Item Parity
+- Product points availability evaluation must cascade through `primaryWalletId` -> `walletSources` (by priority) -> `alternativeWalletIds`.
+- Support both JKR SubWallets and `StoreWallet` points balances during points consumption and refund restoration.
+- `reconcileTicketEdit` must evaluate and reconcile stock across all items in multi-item tickets.
+
+### 7. Referral Hierarchy & Circular Loop Protection
+- Enforce strict Ancestry Traversal (`visitedAncestors`) during referral linking to prevent circular referral loops.
+- Referral commission payouts and vouchers must strictly separate cash withdrawals (`redeemed`) from wallet balance transfers (`adjustment`).
