@@ -1882,7 +1882,7 @@ class LocalDatabase {
     // 1. RECONCILE CASH PAYMENT IN RECEIVING STORE WALLETS (فارق النقدية بمحفظة الاستلام والخط)
     const oldW = oldTicket.paymentWalletId || oldTicket.paymentWallet;
     const newW = updatedTicket.paymentWalletId || updatedTicket.paymentWallet;
-    const oldAmt = Number(oldTicket.receivedAmount || 0);
+    const oldAmt = wasCanceled ? 0 : Number(oldTicket.receivedAmount || 0);
     const newAmt = isNowCanceled ? 0 : Number(updatedTicket.receivedAmount || 0);
 
     try {
@@ -2067,10 +2067,10 @@ class LocalDatabase {
     const oldRequired = Number(oldTicket.requiredAmount || 0);
     const newRequired = isNowCanceled ? 0 : Number(updatedTicket.requiredAmount || 0);
 
-    const oldOver = (oldTicket.overpaymentSettled || (oldTicket.overpaymentAmount && oldTicket.overpaymentAmount > 0))
+    const oldOver = (!wasCanceled && (oldTicket.overpaymentSettled || (oldTicket.overpaymentAmount && oldTicket.overpaymentAmount > 0)))
       ? Number(oldTicket.overpaymentAmount || 0)
       : 0;
-    const oldShort = (oldTicket.shortageSettled || (oldTicket.shortageAmount && oldTicket.shortageAmount > 0))
+    const oldShort = (!wasCanceled && (oldTicket.shortageSettled || (oldTicket.shortageAmount && oldTicket.shortageAmount > 0)))
       ? Number(oldTicket.shortageAmount || 0)
       : 0;
     const oldNetBalance = oldOver - oldShort;
