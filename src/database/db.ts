@@ -1648,6 +1648,7 @@ class LocalDatabase {
 
       // 5a. Purge and reverse Customer Unified Wallet Transactions (STORAGE_KEYS.CASHBACK)
       let custReferralReversedFromTx = false;
+      let reversedReferralAmount = 0;
       const refCustIdsToRecalc = new Set<string>();
       try {
         const allCustTxs = this.getItem<UnifiedWalletTransaction[]>(STORAGE_KEYS.CASHBACK, initialUnifiedWalletTransactions);
@@ -1657,6 +1658,7 @@ class LocalDatabase {
             custReferralReversedFromTx = true;
             const refCust = this.getCustomerById(tx.customerId) || this.findCustomerByPhone(tx.customerId);
             if (refCust) {
+              reversedReferralAmount = Math.round((reversedReferralAmount + Number(tx.amount || 0)) * 100) / 100;
               refCust.referralWalletBalance = Math.max(0, Math.round(((refCust.referralWalletBalance || 0) - Number(tx.amount || 0)) * 100) / 100);
               refCust.totalReferralCommissionEarned = Math.max(0, Math.round(((refCust.totalReferralCommissionEarned || 0) - Number(tx.amount || 0)) * 100) / 100);
               this.saveCustomer(refCust);
@@ -1672,6 +1674,30 @@ class LocalDatabase {
         refCustIdsToRecalc.forEach(id => this.recalculateCustomerProfile(id));
       } catch (errCustTx) {
         console.warn('Error purging customer unified wallet transactions:', errCustTx);
+      }
+
+      // 5a-2. Reverse the CustomerReferral aggregate record so it matches the referrer's wallet again
+      if (!isAlreadyRefunded && ticket.department !== 'dealers' && (reversedReferralAmount > 0 || (ticket.referralCommissionEarned || 0) > 0)) {
+        try {
+          const referredCust = this.getCustomerById(ticket.customerId) || (ticket.customerPhone ? this.findCustomerByPhone(ticket.customerPhone) : undefined);
+          if (referredCust) {
+            const allReferrals = this.getItem<CustomerReferral[]>(STORAGE_KEYS.REFERRALS, initialReferrals);
+            const refRecord = allReferrals.find(
+              r => r.referredCustomerId === referredCust.id ||
+                   (!!referredCust.phone && r.referredCustomerPhone === referredCust.phone)
+            );
+            if (refRecord) {
+              const commissionToReverse = reversedReferralAmount > 0 ? reversedReferralAmount : (ticket.referralCommissionEarned || 0);
+              refRecord.totalCommissionFromReferral = Math.max(0, Math.round(((refRecord.totalCommissionFromReferral || 0) - commissionToReverse) * 100) / 100);
+              refRecord.totalSpentByReferred = Math.max(0, Math.round(((refRecord.totalSpentByReferred || 0) - (ticket.requiredAmount || 0)) * 100) / 100);
+              refRecord.ticketsCountByReferred = Math.max(0, (refRecord.ticketsCountByReferred || 0) - 1);
+              refRecord.hasMadeFirstOrder = refRecord.ticketsCountByReferred > 0;
+              this.setItem(STORAGE_KEYS.REFERRALS, allReferrals);
+            }
+          }
+        } catch (errRef) {
+          console.warn('Error reversing customer referral record:', errRef);
+        }
       }
 
       // 5b. Purge and reverse Dealer Unified Wallet Transactions (STORAGE_KEYS.DEALER_TRANSACTIONS)
@@ -2173,7 +2199,7 @@ class LocalDatabase {
       }
     }
 
-    // 3. RECONCILE CASHBACK (عكس وإعادة حساب الكاش باك بدقة تامة وبلا تكرار)
+    // 3. RECONCILE CASHBACK (عكس وإعادة حساب الكاش باك بدقة ��امة وبلا تكرار)
     const isCompleted = updatedTicket.status === 'completed';
     const isCanceledOrRefunded = updatedTicket.status === 'canceled' || updatedTicket.status === 'refunded';
     const targetCashback = isCanceledOrRefunded ? 0 : ((isCompleted || oldTicket.cashbackSynced) ? Number(updatedTicket.cashbackEarned || 0) : 0);
@@ -3737,7 +3763,7 @@ class LocalDatabase {
       });
 
       this.logAction(
-        { id: user?.id || 'admin', name: authorName, role: 'admin', department: 'الإدارة العامة' },
+        { id: user?.id || 'admin', name: authorName, role: 'admin', department: 'الإ��ارة العامة' },
         'edit',
         'dealer',
         dealer.id,
@@ -6102,7 +6128,7 @@ class LocalDatabase {
           cust.id,
           'deposit',
           slip.totalSalary,
-          `استلام مسير راتب شهر ${slip.month} (صافي المستحق: ${slip.totalSalary} ج.م) [طريقة الصرف: ${paymentMethod}]`,
+          `استلام مسير راتب شهر ${slip.month} (صافي المستحق: ${slip.totalSalary} ��.م) [طريقة الصرف: ${paymentMethod}]`,
           user || 'المسؤول المالي',
           slip.id
         );
@@ -6742,7 +6768,7 @@ class LocalDatabase {
         allowWithdrawal: true,
         status: 'active',
         warningThreshold: 1000,
-        notes: 'خزنة تجميع وتوثيق أرباح مبيعات الجملة وتذاكر التجار',
+        notes: 'خزنة تجميع وتوثيق أرباح مبيعات الجملة و��ذاكر التجار',
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z'
       },
@@ -6784,7 +6810,7 @@ class LocalDatabase {
       },
       {
         id: 'mw_debts',
-        name: 'محفظة ديون وأمانات التجار',
+        name: 'محفظ�� ديون وأمانات التجار',
         type: 'trust',
         systemType: 'trust',
         isSystemWallet: true,
@@ -11313,11 +11339,9 @@ class LocalDatabase {
         if (alreadyLogged) return;
       }
 
-      const before = cbWallet.balance;
-      cbWallet.balance = Math.round((cbWallet.balance + amount) * 100) / 100;
-      cbWallet.totalReceived = Math.round(((cbWallet.totalReceived || 0) + amount) * 100) / 100;
-      cbWallet.updatedAt = new Date().toISOString();
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      // Retail cashback wallet balance is derived from customers' balances in getStoreWallets();
+      // mutating it here would double-count, so only the ledger entry is recorded.
+      const before = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
 
       this.addStoreWalletTransaction({
         walletId: cbWallet.id,
@@ -11395,11 +11419,8 @@ class LocalDatabase {
         if (alreadyLogged) return;
       }
 
-      const before = cbWallet.balance;
-      cbWallet.balance = Math.max(0, Math.round((cbWallet.balance - amount) * 100) / 100);
-      cbWallet.totalWithdrawn = Math.round(((cbWallet.totalWithdrawn || 0) + amount) * 100) / 100;
-      cbWallet.updatedAt = new Date().toISOString();
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      // Balance is derived from customers' balances in getStoreWallets(); record the ledger entry only.
+      const before = Math.round((cbWallet.balance + amount) * 100) / 100;
 
       this.addStoreWalletTransaction({
         walletId: cbWallet.id,
@@ -11456,16 +11477,13 @@ class LocalDatabase {
     const wallets = this.getStoreWallets();
     const refWallet = wallets.find(w => w.id === 'w_referrals' || w.systemType === 'referrals');
     if (refWallet) {
-      const before = refWallet.balance;
-      refWallet.balance = Math.round((refWallet.balance + amount) * 100) / 100;
-      refWallet.totalReceived = Math.round(((refWallet.totalReceived || 0) + amount) * 100) / 100;
-      refWallet.updatedAt = new Date().toISOString();
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      // Balance is derived from customers' referral balances in getStoreWallets(); record the ledger entry only.
+      const before = Math.max(0, Math.round((refWallet.balance - amount) * 100) / 100);
 
       this.addStoreWalletTransaction({
         walletId: refWallet.id,
         walletName: refWallet.name,
-        type: 'adjustment',
+        type: 'deposit',
         amount,
         currency: 'EGP',
         balanceBefore: before,
@@ -11515,11 +11533,8 @@ class LocalDatabase {
     const wallets = this.getStoreWallets();
     const refWallet = wallets.find(w => w.id === 'w_referrals' || w.systemType === 'referrals');
     if (refWallet) {
-      const before = refWallet.balance;
-      refWallet.balance = Math.max(0, Math.round((refWallet.balance - amount) * 100) / 100);
-      refWallet.totalWithdrawn = Math.round(((refWallet.totalWithdrawn || 0) + amount) * 100) / 100;
-      refWallet.updatedAt = new Date().toISOString();
-      this.setItem(STORAGE_KEYS.STORE_WALLETS, wallets);
+      // Balance is derived from customers' referral balances in getStoreWallets(); record the ledger entry only.
+      const before = Math.round((refWallet.balance + amount) * 100) / 100;
 
       this.addStoreWalletTransaction({
         walletId: refWallet.id,
@@ -15281,7 +15296,7 @@ class LocalDatabase {
       customerId: partner.id,
       authorName: user?.name || 'إدارة النظام',
       authorRole: 'مراقبة الشراكات',
-      content: `📊 تقييم الأداء الشهري: ${result.message}`,
+      content: `📊 ��قييم الأداء الشهري: ${result.message}`,
       type: result.actionTaken === 'demoted' ? 'complaint' : result.actionTaken === 'warned' ? 'general' : 'financial'
     });
 
