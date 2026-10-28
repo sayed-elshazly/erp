@@ -1861,6 +1861,11 @@ class LocalDatabase {
             this.saveCustomer(cust);
           }
         }
+        // Retail cashback/referral wallets are derived from customer balances, so their ledger
+        // can be erased cleanly instead of keeping the original entry plus a reversal entry.
+        if (!isAlreadyRefunded) {
+          this.purgeDerivedWalletLedgerForTicket(ticket);
+        }
       }
     } catch (e) {
       console.warn('Error updating customer/dealer profile on ticket delete:', e);
@@ -10792,7 +10797,7 @@ class LocalDatabase {
             currency: 'EGP',
             balanceBefore: isDeduction ? u.balanceAfter + Math.abs(u.amount) : Math.max(0, u.balanceAfter - Math.abs(u.amount)),
             balanceAfter: u.balanceAfter,
-            description: u.operationName || (isDeduction ? `استبدال واستخدام كاش باك في تذكرة #${u.orderNumber || ''}` : `إيداع كاش باك للعميل ${cust?.name || ''}`),
+            description: u.operationName || (isDeduction ? `استبدال واستخدام كاش باك في تذكرة #${u.orderNumber || ''}` : `إيداع كاش باك للعمي�� ${cust?.name || ''}`),
             referenceNumber: u.orderNumber,
             sourceTicketNumber: u.orderNumber,
             customerName: cust?.name,
@@ -12055,6 +12060,31 @@ class LocalDatabase {
       window.dispatchEvent(new Event('storage'));
       window.dispatchEvent(new CustomEvent('store_wallets_updated', { detail: { walletId: expWallet.id } }));
     }
+  }
+
+  public purgeDerivedWalletLedgerForTicket(ticket: { id?: string; ticketNumber?: string }): number {
+    const derivedWalletIds = ['w_cashback', 'w_referrals'];
+    const tktNum = ticket.ticketNumber;
+    const tktId = ticket.id;
+    if (!tktNum && !tktId) return 0;
+
+    const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+    const remaining = allTx.filter(tx => {
+      if (!derivedWalletIds.includes(tx.walletId)) return true;
+      const matches =
+        (!!tktNum && (tx.referenceNumber === tktNum || tx.sourceTicketNumber === tktNum || !!tx.description?.includes(`#${tktNum}`))) ||
+        (!!tktId && tx.sourceTicketId === tktId);
+      return !matches;
+    });
+
+    const removed = allTx.length - remaining.length;
+    if (removed > 0) {
+      this.setItem(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, remaining);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('store_wallets_updated'));
+      }
+    }
+    return removed;
   }
 
   public cleanupDuplicateProfitTransactions(): void {
@@ -17795,7 +17825,7 @@ class LocalDatabase {
         'محاولة تسليم مكافأة مرفوضة (غير مصرح)',
         `المستخدم [${user.fullName || user.username}] حاول تسليم المكافأة [${rewardId}] دون امتلاك صلاحية تسليم المكافآت.`
       );
-      return { success: false, message: 'ليس لديك صلاحية تسليم واعتماد مكافآت المسابقات.' };
+      return { success: false, message: 'ليس لديك صلاحية تسليم واع��ماد مكافآت المسابقات.' };
     }
     return CompetitionService.deliverReward(rewardId, user);
   }
