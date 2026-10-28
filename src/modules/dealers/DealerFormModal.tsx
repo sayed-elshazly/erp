@@ -263,7 +263,14 @@ export const DealerFormModal: React.FC<DealerFormModalProps> = ({
     } else {
       const phoneCheck = db.isPhoneTaken(formData.phone, dealerToEdit?.id);
       if (phoneCheck.taken) {
-        const typeLabel = phoneCheck.entityType === 'dealer' ? 'تاجر' : 'عميل';
+        const typeLabel =
+          phoneCheck.entityType === 'dealer'
+            ? 'تاجر'
+            : phoneCheck.entityType === 'subscription_client'
+            ? 'مشترك في قسم الاشتراكات'
+            : phoneCheck.entityType === 'middleman_client'
+            ? 'عميل في قسم الوساطة'
+            : 'عميل';
         errs.phone = `رقم الهاتف (${phoneCheck.phone}) مسجل بالفعل لحساب ${typeLabel} باسم "${phoneCheck.name}" (يمنع إنشاء حساب مكرر)`;
       }
     }

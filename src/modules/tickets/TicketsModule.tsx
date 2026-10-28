@@ -318,6 +318,14 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
     const unsubCust = eventBus.subscribe(SYSTEM_EVENTS.CUSTOMER_UPDATED, () => {
       loadData();
     });
+    const unsubHydrated = eventBus.subscribe('SUPABASE_HYDRATED', () => {
+      loadData();
+    });
+    const unsubSynced = eventBus.subscribe('DATA_SYNCED', (payload: any) => {
+      if (!payload?.table || payload.table === 'tickets' || payload.table === 'dealer_tickets' || payload.table === 'customers' || payload.table === 'store_wallets') {
+        loadData();
+      }
+    });
 
     window.addEventListener('storage', loadData);
     window.addEventListener('store_wallets_updated', loadData);
@@ -332,6 +340,8 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
       unsubTicketUpd();
       unsubTicketCreated();
       unsubCust();
+      unsubHydrated();
+      unsubSynced();
       window.removeEventListener('storage', loadData);
       window.removeEventListener('store_wallets_updated', loadData);
       window.removeEventListener('tickets_updated', loadData);
@@ -1800,7 +1810,14 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ department = 'cust
 
     const phoneCheck = db.isPhoneTaken(cleanPhone);
     if (phoneCheck.taken) {
-      const typeLabel = phoneCheck.entityType === 'dealer' ? 'تاجر' : 'عميل';
+      const typeLabel =
+        phoneCheck.entityType === 'dealer'
+          ? 'تاجر'
+          : phoneCheck.entityType === 'subscription_client'
+          ? 'مشترك في قسم الاشتراكات'
+          : phoneCheck.entityType === 'middleman_client'
+          ? 'عميل في قسم الوساطة'
+          : 'عميل';
       showToast('error', 'هاتف مسجل بالفعل', `رقم الهاتف (${phoneCheck.phone}) مسجل مسبقاً لحساب ${typeLabel} باسم "${phoneCheck.name}"`);
       return;
     }

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabaseStorage } from './database/supabaseStorage';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { HistoryProvider } from './context/HistoryContext';
@@ -55,8 +56,34 @@ import { db } from './database/db';
 const MainApp: React.FC = () => {
   const { user, isAuthenticated, canAccessDepartment, hasPermission } = useAuth();
   const { activeTab, openTab } = useTabs();
-  const [showSplash, setShowSplash] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(() => supabaseStorage.isStorageHydrated());
+  const [showSplash, setShowSplash] = useState(() => !supabaseStorage.isStorageHydrated());
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const waitForHydration = async () => {
+      try {
+        await supabaseStorage.waitForHydration();
+      } catch (err) {
+        console.warn('Supabase hydration barrier warning:', err);
+      } finally {
+        if (isMounted) {
+          setIsHydrated(true);
+        }
+      }
+    };
+
+    if (!supabaseStorage.isStorageHydrated()) {
+      waitForHydration();
+    } else {
+      setIsHydrated(true);
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Quick action triggers for Command Palette
   const [openNewCustomerTrigger, setOpenNewCustomerTrigger] = useState(false);
@@ -65,7 +92,7 @@ const MainApp: React.FC = () => {
 
   // If splash screen is still running
   if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+    return <SplashScreen isReady={isHydrated} onComplete={() => setShowSplash(false)} />;
   }
 
   // If user is not authenticated, show User Selection (Manager vs Employee)

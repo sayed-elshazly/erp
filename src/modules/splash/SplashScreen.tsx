@@ -3,9 +3,10 @@ import { JkrLogo } from '../../components/common/JkrLogo';
 
 interface SplashScreenProps {
   onComplete: () => void;
+  isReady?: boolean;
 }
 
-export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
+export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete, isReady }) => {
   const [fade, setFade] = useState(false);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
@@ -18,13 +19,29 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
   };
 
   useEffect(() => {
-    // Fast 1.0 second splash duration for instant startup responsiveness
+    // If isReady is explicitly managed by the hydration barrier
+    if (isReady !== undefined) {
+      if (isReady) {
+        // Small aesthetic delay so splash renders smoothly
+        const timer = setTimeout(() => {
+          handleFinish();
+        }, 250);
+        return () => clearTimeout(timer);
+      }
+      // Safety timeout: dismiss after 3.5s even if offline/slow network
+      const safetyTimer = setTimeout(() => {
+        handleFinish();
+      }, 3500);
+      return () => clearTimeout(safetyTimer);
+    }
+
+    // Default standalone splash duration
     const timer = setTimeout(() => {
       handleFinish();
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [isReady]);
 
   return (
     <div

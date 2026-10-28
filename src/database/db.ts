@@ -4155,7 +4155,7 @@ class LocalDatabase {
   public isPhoneTaken(
     phone: string,
     excludeId?: string
-  ): { taken: boolean; entityType?: 'customer' | 'dealer'; name?: string; phone: string; code?: string } {
+  ): { taken: boolean; entityType?: 'customer' | 'dealer' | 'subscription_client' | 'middleman_client'; name?: string; phone: string; code?: string } {
     if (!phone) return { taken: false, phone: '' };
     const norm = normalizePhoneNumber(phone);
     if (!norm) return { taken: false, phone: '' };
@@ -4168,6 +4168,16 @@ class LocalDatabase {
     const dealer = this.getDealers(true).find(d => d.id !== excludeId && isSamePhoneNumber(d.phone, norm));
     if (dealer) {
       return { taken: true, entityType: 'dealer', name: dealer.name, phone: dealer.phone, code: dealer.code };
+    }
+
+    const subClient = this.getSubscriptionClients(true).find(s => s.id !== excludeId && isSamePhoneNumber(s.phone, norm));
+    if (subClient) {
+      return { taken: true, entityType: 'subscription_client', name: subClient.name, phone: subClient.phone, code: subClient.code };
+    }
+
+    const mmClient = this.getMiddlemanClients(true).find(m => m.id !== excludeId && isSamePhoneNumber(m.phone, norm));
+    if (mmClient) {
+      return { taken: true, entityType: 'middleman_client', name: mmClient.name, phone: mmClient.phone, code: mmClient.code };
     }
 
     return { taken: false, phone: norm };

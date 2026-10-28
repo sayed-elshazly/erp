@@ -6,6 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Customer } from '../../types/customer.types';
 import { CustomerSubscription, SubscriptionPlan } from '../../types/subscription.types';
 import { db } from '../../database/db';
+import { eventBus } from '../../services/eventBus';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { Card } from '../../components/common/Card';
@@ -60,6 +61,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatters';
+import { isSamePhoneNumber, normalizePhoneNumber } from '../../utils/phoneUtils';
 
 export const SubscriptionsClientsList: React.FC = () => {
   const { user } = useAuth();
@@ -136,6 +138,37 @@ export const SubscriptionsClientsList: React.FC = () => {
     setPlans(db.getSubscriptionPlans());
     setSavedPresets(getSavedFilterPresets());
   };
+
+  // Listen to Supabase hydration and realtime synchronization events
+  useEffect(() => {
+    const unsubHydrated = eventBus.subscribe('SUPABASE_HYDRATED', () => {
+      reloadData();
+    });
+
+    const unsubSynced = eventBus.subscribe('DATA_SYNCED', (payload: any) => {
+      if (
+        !payload?.table ||
+        payload.table === 'system_kv' ||
+        payload.table === 'subscriptions' ||
+        payload.table === 'subscription_plans' ||
+        payload.table === 'subscription_payments'
+      ) {
+        reloadData();
+      }
+    });
+
+    const unsubKv = eventBus.subscribe('SUPABASE_KV_UPDATED', (payload: any) => {
+      if (!payload?.key || payload.key.includes('subscription')) {
+        reloadData();
+      }
+    });
+
+    return () => {
+      unsubHydrated();
+      unsubSynced();
+      unsubKv();
+    };
+  }, []);
 
   // Enriched Clients with Subscription Statistics
   const enrichedClients = useMemo(() => {
@@ -218,8 +251,9 @@ export const SubscriptionsClientsList: React.FC = () => {
   // Save new customer from modal
   const handleSaveCustomer = (custData: Partial<Customer>) => {
     const existing = db.getSubscriptionClients(true);
+    const cleanPhone = normalizePhoneNumber(custData.phone?.trim() || '');
     // Duplicate check
-    const isDupPhone = existing.some(c => c.phone.trim() === custData.phone?.trim());
+    const isDupPhone = existing.some(c => isSamePhoneNumber(c.phone, cleanPhone));
     if (isDupPhone) {
       showToast('error', 'عميل مكرر', 'يوجد مشترك مسجل بنفس رقم الهاتف مسبقاً في قسم الاشتراكات');
       return;
@@ -229,7 +263,7 @@ export const SubscriptionsClientsList: React.FC = () => {
       id: custData.id || `sub_cust_${Date.now()}`,
       code: custData.code || `SUB-${Math.floor(1000 + Math.random() * 9000)}`,
       name: custData.name?.trim() || '',
-      phone: custData.phone?.trim() || '',
+      phone: cleanPhone,
       extraPhone: custData.extraPhone?.trim() || undefined,
       email: custData.email?.trim() || undefined,
       address: custData.address?.trim() || undefined,

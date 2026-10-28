@@ -13,6 +13,7 @@ import {
   CustomerTicket
 } from '../../types/customer.types';
 import { db } from '../../database/db';
+import { eventBus } from '../../services/eventBus';
 import { ProfileStatisticsService } from '../../services/customer/profileStatisticsService';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
@@ -183,6 +184,18 @@ export const MiddlemanClientsList: React.FC<MiddlemanClientsListProps> = ({
 
   useEffect(() => {
     loadData();
+
+    const unsubHydrated = eventBus.subscribe('SUPABASE_HYDRATED', loadData);
+    const unsubSynced = eventBus.subscribe('DATA_SYNCED', (payload: any) => {
+      if (!payload?.table || payload.table === 'system_kv' || payload.table === 'middleman_deals' || payload.table === 'middleman_accounts') {
+        loadData();
+      }
+    });
+
+    return () => {
+      unsubHydrated();
+      unsubSynced();
+    };
   }, []);
 
   // Compute Middleman Role & Volume Map

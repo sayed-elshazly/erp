@@ -255,9 +255,19 @@ export const DealersList: React.FC<DealersListProps> = ({ initialSelectedDealer 
     const unsubProducts = eventBus.subscribe(SYSTEM_EVENTS.PRODUCTS_UPDATED, () => {
       loadData();
     });
+    const unsubHydrated = eventBus.subscribe('SUPABASE_HYDRATED', () => {
+      loadData();
+    });
+    const unsubSynced = eventBus.subscribe('DATA_SYNCED', (payload: any) => {
+      if (!payload?.table || payload.table === 'dealers' || payload.table === 'dealer_tickets' || payload.table === 'dealer_wallets') {
+        loadData();
+      }
+    });
 
     return () => {
       unsubProducts();
+      unsubHydrated();
+      unsubSynced();
     };
   }, [initialSelectedDealer]);
 

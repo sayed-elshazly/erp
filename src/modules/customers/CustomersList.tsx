@@ -262,7 +262,7 @@ export const CustomersList: React.FC<CustomersListProps> = ({ initialSelectedCus
     }
   }, [initialSelectedCustomer]);
 
-  // Event Bus subscriptions for shortcuts
+  // Event Bus subscriptions for shortcuts & cloud sync
   useEffect(() => {
     const unsubNew = eventBus.subscribe(SYSTEM_EVENTS.TRIGGER_NEW, () => {
       setCustomerToEdit(null);
@@ -277,10 +277,27 @@ export const CustomersList: React.FC<CustomersListProps> = ({ initialSelectedCus
       loadData();
     });
 
+    const unsubHydrated = eventBus.subscribe('SUPABASE_HYDRATED', () => {
+      loadData();
+    });
+
+    const unsubSynced = eventBus.subscribe('DATA_SYNCED', (payload: any) => {
+      if (!payload?.table || payload.table === 'customers' || payload.table === 'tickets' || payload.table === 'store_wallets') {
+        loadData();
+      }
+    });
+
+    const unsubCustCreated = eventBus.subscribe(SYSTEM_EVENTS.CUSTOMER_CREATED, loadData);
+    const unsubCustUpdated = eventBus.subscribe(SYSTEM_EVENTS.CUSTOMER_UPDATED, loadData);
+
     return () => {
       unsubNew();
       unsubSearch();
       unsubProducts();
+      unsubHydrated();
+      unsubSynced();
+      unsubCustCreated();
+      unsubCustUpdated();
     };
   }, []);
 
