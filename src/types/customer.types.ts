@@ -205,7 +205,7 @@ export interface CustomerTicket {
   
   // Financial Amounts
   requiredAmount: number; // المبلغ المطلوب بعد كل الخصومات
-  totalProductsAmount: number; // إجمالي أسعار المنتجات قبل الخصومات
+  totalProductsAmount: number; // إجمالي أسعار المنتج��ت قبل الخصومات
   totalCostAmount: number; // إجمالي التكلفة
   totalProfitMargin: number; // هامش الربح الإجمالي
   receivedAmount: number; // المبلغ المستلم فعلياً
@@ -384,6 +384,7 @@ export interface UnifiedWalletTransaction {
   type: 'earned' | 'redeemed' | 'commission' | 'adjustment' | 'bonus' | 'credit' | 'debit' | 'settlement';
   operationName: string; // تذكرة #123 أو استخدام أو عمولة إحالة
   amount: number; // + or -
+  direction?: 'in' | 'out'; // required meaning for 'adjustment' rows where amount is stored as an absolute value
   balanceAfter: number;
   orderNumber?: string;
   notes?: string;
