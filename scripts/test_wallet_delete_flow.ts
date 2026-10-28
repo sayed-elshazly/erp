@@ -37,13 +37,19 @@ async function main() {
   const link = db.linkCustomerReferral(referredId, refCode);
   console.log('link referral:', link.success, link.message);
 
+  const walletInfo = (id: string) => {
+    const w: any = db.getStoreWallets().find(x => x.id === id);
+    return { bal: w?.balance ?? 0, rec: w?.totalReceived ?? 0, wd: w?.totalWithdrawn ?? 0 };
+  };
+  const profBefore = walletInfo('w_profits');
+  const opexBefore = walletInfo('w_operating_expenses');
   const cbBefore = walletBal('w_cashback');
   const refBefore = walletBal('w_referrals');
 
   db.saveTicket({
     id: ticketId, ticketNumber, customerId: referredId, customerName: 'اختبار المحال', customerPhone: '0105' + stamp + '2',
     status: 'pending', requiredAmount: 520, receivedAmount: 520, paymentWalletId: 'w_voda', paymentWallet: 'فودافون كاش',
-    createdAt: new Date().toISOString(), cashbackPercent: 1, referralPercent: 1,
+    createdAt: new Date().toISOString(), cashbackPercent: 1, referralPercent: 1, netProfit: 50, totalProfitMargin: 50, fixedCostAmount: 10,
     items: [{ productId: 'prod_t', productName: 'منتج', gameName: 'لعبة', unitPrice: 520, quantity: 1, totalPrice: 520, consumedPoints: 0 }]
   } as any);
 
@@ -54,6 +60,12 @@ async function main() {
   const referredAfterComplete = db.getCustomerById(referredId)!;
   const referredCbMid = referredAfterComplete.cashbackBalance || 0;
   const referrerRefMid = referrerAfterComplete.referralWalletBalance || 0;
+  const profMid = walletInfo('w_profits');
+  const opexMid = walletInfo('w_operating_expenses');
+  const profLedgerMid = ledger('w_profits', ticketNumber).length;
+  const opexLedgerMid = ledger('w_operating_expenses', ticketNumber).length;
+  console.log('profit wallet', JSON.stringify(profBefore), '->', JSON.stringify(profMid), 'ledger rows:', profLedgerMid);
+  console.log('opex wallet', JSON.stringify(opexBefore), '->', JSON.stringify(opexMid), 'ledger rows:', opexLedgerMid);
   const cbMid = walletBal('w_cashback');
   const refMid = walletBal('w_referrals');
   console.log('\n--- بعد الإكمال ---');
@@ -74,6 +86,11 @@ async function main() {
 
   const referrerAfterDelete = db.getCustomerById(referrerId)!;
   const referredAfterDelete = db.getCustomerById(referredId)!;
+  const profEnd = walletInfo('w_profits');
+  const opexEnd = walletInfo('w_operating_expenses');
+  console.log('profit wallet end', JSON.stringify(profEnd), 'ledger rows:', ledger('w_profits', ticketNumber).length);
+  console.log('opex wallet end', JSON.stringify(opexEnd), 'ledger rows:', ledger('w_operating_expenses', ticketNumber).length);
+  const same = (a: any, b: any) => Math.abs(a.bal - b.bal) < 0.001 && Math.abs(a.rec - b.rec) < 0.001 && Math.abs(a.wd - b.wd) < 0.001;
   const cbEnd = walletBal('w_cashback');
   const refEnd = walletBal('w_referrals');
   console.log('\n--- بعد الحذف ---');
@@ -96,6 +113,12 @@ async function main() {
     ['رصيد إحالات المحيل صفر بعد الحذف', (referrerAfterDelete.referralWalletBalance || 0) === 0],
     ['سجل الكاش باك فاضي للتذكرة بعد الحذف', ledger('w_cashback', ticketNumber).length === 0],
     ['سجل الإحالات فاضي للتذكرة بعد الحذف', ledger('w_referrals', ticketNumber).length === 0],
+    ['الأرباح اتسجلت عند الإكمال', profLedgerMid > 0 && profMid.bal > profBefore.bal],
+    ['مصاريف التشغيل اتسجلت عند الإكمال', opexLedgerMid > 0],
+    ['محفظة الأرباح (الرصيد والإجماليات) رجعت لأصلها بعد الحذف', same(profEnd, profBefore)],
+    ['محفظة مصاريف التشغيل (الرصيد والإجماليات) رجعت لأصلها بعد الحذف', same(opexEnd, opexBefore)],
+    ['سجل الأرباح فاضي للتذكرة بعد الحذف', ledger('w_profits', ticketNumber).length === 0],
+    ['سجل مصاريف التشغيل فاضي للتذكرة بعد الحذف', ledger('w_operating_expenses', ticketNumber).length === 0],
     ['سجل الإحالة اتصفّر', !refRecEnd || (refRecEnd.totalCommissionFromReferral === 0 && refRecEnd.ticketsCountByReferred === 0)],
   ];
   console.log('\n=== النتيجة ===');

@@ -995,6 +995,7 @@ NZM JKR Top Up 🌟`;
       type: 'adjustment',
       operationName: `تعديل إداري (${fieldName})${adjTicketNum ? ` (تذكرة #${adjTicketNum})` : ''}: ${adjustReason || 'تسوية رصيد بواسطة المدير'}`,
       amount: Math.abs(newVal - oldVal),
+      direction: newVal >= oldVal ? 'in' : 'out',
       balanceAfter: newVal,
       notes: `بواسطة ${user?.fullName || 'المدير المالك'}`,
       orderNumber: adjTicketNum
@@ -1573,7 +1574,7 @@ NZM JKR Top Up 🌟`;
                       ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
                       : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                   } ${isOwner ? 'hover:scale-105 cursor-pointer' : ''}`}
-                  title={isOwner ? 'اضغط لتعديل رصيد حساب العميل' : ''}
+                  title={isOwner ? 'اضغط لتعديل ��صيد حساب العميل' : ''}
                 >
                   {(currentCust.accountBalance || 0) > 0
                     ? `دائن: +${currentCust.accountBalance} ج ⚙️`
@@ -1691,7 +1692,7 @@ NZM JKR Top Up 🌟`;
                   ? 'bg-purple-600/20 hover:bg-purple-600 hover:text-white text-purple-400 border border-purple-500/30'
                   : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-900/30'
               }`}
-              title={currentCust.hasReferralProfile ? 'فتح وتعديل بروفايل الإحالة المربوط' : 'إنشاء وربط بروفايل إحالة جديد لهذا العميل'}
+              title={currentCust.hasReferralProfile ? 'فتح وتعديل بروفايل الإحالة المربوط' : 'إنشاء وربط بر��فايل إحالة جديد لهذا العميل'}
             >
               <Share2 className="w-3.5 h-3.5" />
               {currentCust.hasReferralProfile ? 'بروفايل الإحالة ⚙️' : '+ إضافة بروفايل إحالة'}
@@ -4957,7 +4958,7 @@ NZM JKR Top Up 🌟`;
                 <li>سيتحول رصيد المحفظة الأساسية للعميل فوراً إلى <strong>0 جنيه</strong>.</li>
                 <li>يتم تسجيل العملية في سجل الحركات كـ "تصفية محفظة بأمر المالك".</li>
                 <li><strong>لا يؤثر على أي تقارير أرباح سابقة</strong> لأن العجز لم يدخل في الأرباح أصلاً من البداية.</li>
-                <li>محفظة الكاش باك ومحفظة الإحالة تظلان مستقلتين تماماً دون أي مساس بهما.</li>
+                <li>��حفظة الكاش باك ومحفظة الإحالة تظلان مستقلتين تماماً دون أي مساس بهما.</li>
               </ul>
             </div>
 

@@ -1,5 +1,6 @@
 import { getDaysInMonth, calculateDailyRate, isStoreWalletTxPositive } from '../utils/formatters';
 import { supabaseStorage } from './supabaseStorage';
+import { getStoreWalletTxSignedDelta, getUnifiedAdjustmentDelta } from '../utils/walletLedger';
 import {
   initialCustomers,
   initialNotes,
@@ -662,7 +663,7 @@ class LocalDatabase {
       const custCbTxs = validUnifiedTxs.filter(t => t.customerId === c.id && t.walletType === 'cashback');
       if (custCbTxs.length > 0) {
         const calculatedCbBalance = Math.max(0, Math.round(custCbTxs.reduce((sum, tx) => {
-          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0)) {
+          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && getUnifiedAdjustmentDelta(tx) > 0)) {
             return sum + (Number(tx.amount) || 0);
           } else {
             return sum - (Number(tx.amount) || 0);
@@ -670,7 +671,7 @@ class LocalDatabase {
         }, 0) * 100) / 100);
 
         const totalCbEarned = Math.round(custCbTxs
-          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0))
+          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && getUnifiedAdjustmentDelta(tx) > 0))
           .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0) * 100) / 100;
 
         if (c.cashbackBalance !== calculatedCbBalance || c.totalCashbackEarned !== totalCbEarned) {
@@ -808,7 +809,8 @@ class LocalDatabase {
 
         const creditedCb = Math.round(ticketTxs.reduce((sum, t) => {
           if (t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-          if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+          if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
           return sum;
         }, 0) * 100) / 100;
 
@@ -1871,6 +1873,18 @@ class LocalDatabase {
       console.warn('Error updating customer/dealer profile on ticket delete:', e);
     }
 
+    // Profit / operating-expense / dealer cashback & referral wallets keep real balances, so the
+    // reversal entries above are balance-correct; fold original + reversal into nothing when they cancel out.
+    if (!isAlreadyRefunded) {
+      try {
+        this.collapseNettedTicketLedger(ticket, ['w_profits', 'w_operating_expenses'], false, true);
+        this.collapseNettedTicketLedger(ticket, ['mw_profits'], true, true);
+        this.collapseNettedTicketLedger(ticket, ['mw_cashback', 'mw_referrals'], true, true);
+      } catch (errCollapse) {
+        console.warn('Error collapsing netted ticket ledger entries:', errCollapse);
+      }
+    }
+
     // 6. Real-time UI updates
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('jkr_wallets_updated'));
@@ -2216,7 +2230,8 @@ class LocalDatabase {
         const ticketCbTxs = allDealerTxs.filter(t => t.customerId === dealer.id && t.orderNumber === ticketNum && t.walletType === 'cashback');
         const existingCreditedCb = Math.round(ticketCbTxs.reduce((sum, t) => {
           if (t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-          if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+          if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
           return sum;
         }, 0) * 100) / 100;
 
@@ -2263,7 +2278,8 @@ class LocalDatabase {
         const ticketCbTxs = allCustTxs.filter(t => t.customerId === cust.id && t.orderNumber === ticketNum && t.walletType === 'cashback');
         const existingCreditedCb = Math.round(ticketCbTxs.reduce((sum, t) => {
           if (t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-          if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+          if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
           return sum;
         }, 0) * 100) / 100;
 
@@ -2313,7 +2329,8 @@ class LocalDatabase {
       const ticketRefTxs = allDealerTxs.filter(t => t.orderNumber === ticketNum && t.walletType === 'referral');
       const existingCreditedRef = Math.round(ticketRefTxs.reduce((sum, t) => {
         if (t.type === 'commission' || t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-        if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+        if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
         return sum;
       }, 0) * 100) / 100;
 
@@ -2366,7 +2383,8 @@ class LocalDatabase {
       const ticketRefTxs = allCustTxs.filter(t => t.orderNumber === ticketNum && t.walletType === 'referral');
       const existingCreditedRef = Math.round(ticketRefTxs.reduce((sum, t) => {
         if (t.type === 'commission' || t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-        if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+        if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
         return sum;
       }, 0) * 100) / 100;
 
@@ -2397,7 +2415,7 @@ class LocalDatabase {
               orderNumber: ticketNum
             });
             this.creditReferralToSystemWallet(diffRef, referrerCust.name, ticketNum, false);
-            adjustments.push(`إضافة فارق عمولة إحالة لشريك النجاح: +${diffRef} ج`);
+            adjustments.push(`إضافة فارق عمولة إحال�� لشريك النجاح: +${diffRef} ج`);
           } else {
             this.addUnifiedWalletTransaction({
               customerId: referrerCust.id,
@@ -4119,7 +4137,7 @@ class LocalDatabase {
       const dealerCbTxs = validDealerTxs.filter(t => t.customerId === d.id && t.walletType === 'cashback');
       if (dealerCbTxs.length > 0) {
         const calculatedCbBalance = Math.max(0, Math.round(dealerCbTxs.reduce((sum, tx) => {
-          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0)) {
+          if (tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && getUnifiedAdjustmentDelta(tx) > 0)) {
             return sum + (Number(tx.amount) || 0);
           } else {
             return sum - (Number(tx.amount) || 0);
@@ -4127,7 +4145,7 @@ class LocalDatabase {
         }, 0) * 100) / 100);
 
         const totalCbEarned = Math.round(dealerCbTxs
-          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && (tx.amount || 0) > 0))
+          .filter(tx => tx.type === 'earned' || tx.type === 'credit' || tx.type === 'bonus' || (tx.type === 'adjustment' && getUnifiedAdjustmentDelta(tx) > 0))
           .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0) * 100) / 100;
 
         if (d.cashbackBalance !== calculatedCbBalance || d.totalCashbackEarned !== totalCbEarned) {
@@ -4316,7 +4334,8 @@ class LocalDatabase {
 
         const creditedCb = Math.round(ticketTxs.reduce((sum, t) => {
           if (t.type === 'earned' || t.type === 'credit') return sum + (Number(t.amount) || 0);
-          if (t.type === 'debit' || t.type === 'adjustment') return sum - (Number(t.amount) || 0);
+          if (t.type === 'debit') return sum - (Number(t.amount) || 0);
+          if (t.type === 'adjustment') return sum + getUnifiedAdjustmentDelta(t);
           return sum;
         }, 0) * 100) / 100;
 
@@ -6052,7 +6071,7 @@ class LocalDatabase {
         authorName: 'الإدارة المالية',
         authorRole: 'مالية ومراجعة',
         type: 'financial',
-        content: `⚖️ تم تسجيل ${type === 'deduction' ? 'خصم وجزاء مالي' : 'مكافأة وحافز إضافي'} بمبلغ (${amount} ج.م) لشهر ${targetMonth} - البيان والسبب: ${reason}. صافي الراتب المستحق: (${slip.totalSalary} ج.م).`
+        content: `⚖️ تم تسجيل ${type === 'deduction' ? 'خصم وجزاء مالي' : 'مكافأة وحافز إضافي'} بمبلغ (${amount} ج.م) لشهر ${targetMonth} - البيان والسبب: ${reason}. صافي الرات�� المستحق: (${slip.totalSalary} ج.م).`
       });
     }
 
@@ -6750,7 +6769,7 @@ class LocalDatabase {
           'vault_exchange',
           'dealer_safe_transaction',
           newTx.id,
-          `${exchangeType === 'buy_usd' ? 'شراء دولار' : 'بيع دولار'}: $${usdAmount} بسعر ${usdExchangeRate} ج.م (الإجمالي: ${egpAmount} ج.م)`
+          `${exchangeType === 'buy_usd' ? 'شراء دولار' : 'بيع دولار'}: $${usdAmount} بسعر ${usdExchangeRate} ج.م (الإج��الي: ${egpAmount} ج.م)`
         );
       } catch (_) {}
     }
@@ -11644,7 +11663,7 @@ class LocalDatabase {
           description: `${reason} للتاجر [${customerName}]${ticketNumber ? ` عن تذكرة #${ticketNumber}` : ''}`,
           referenceNumber: ticketNumber,
           sourceType: 'trust',
-          sourceName: 'صرف أمانات تجار ورصيد معلق',
+          sourceName: 'صرف أمانات ��جار ورصيد معلق',
           customerName
         });
         if (typeof window !== 'undefined') {
@@ -12062,6 +12081,85 @@ class LocalDatabase {
     }
   }
 
+  private walletTxBelongsToTicket(
+    tx: StoreWalletTransaction,
+    ticket: { id?: string; ticketNumber?: string }
+  ): boolean {
+    const tktNum = ticket.ticketNumber;
+    const tktId = ticket.id;
+    if (tktNum) {
+      if (tx.referenceNumber === tktNum || tx.sourceTicketNumber === tktNum) return true;
+      const escaped = tktNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (tx.description && new RegExp(`#${escaped}(?![\\w-])`).test(tx.description)) return true;
+    }
+    return !!tktId && tx.sourceTicketId === tktId;
+  }
+
+  /**
+   * Removes a ticket's ledger rows from the given wallets when their net effect on the balance is zero
+   * (original entry cancelled by its reversal). Wallet balance is untouched; for profit/opex wallets the
+   * cumulative totals are rolled back by what those rows contributed so they are not inflated by a deleted ticket.
+   */
+  public collapseNettedTicketLedger(
+    ticket: { id?: string; ticketNumber?: string },
+    walletIds: string[],
+    isDealerWallet: boolean,
+    adjustTotals: boolean
+  ): number {
+    if (!ticket.ticketNumber && !ticket.id) return 0;
+
+    const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
+    const removeIds = new Set<string>();
+    const totalsByWallet = new Map<string, { received: number; withdrawn: number }>();
+
+    for (const walletId of walletIds) {
+      const matched = allTx.filter(tx => tx.walletId === walletId && this.walletTxBelongsToTicket(tx, ticket));
+      if (matched.length < 2) continue;
+
+      const net = matched.reduce((sum, tx) => sum + getStoreWalletTxSignedDelta(tx), 0);
+      if (Math.abs(net) >= 0.005) continue;
+
+      let received = 0;
+      let withdrawn = 0;
+      for (const tx of matched) {
+        const delta = getStoreWalletTxSignedDelta(tx);
+        const isLegacyReversal = delta < 0 && /^عكس/.test(tx.sourceName || '');
+        if (isLegacyReversal) {
+          received -= Math.abs(delta);
+          withdrawn += Math.abs(delta);
+        } else if (delta > 0) {
+          received += delta;
+        } else if (delta < 0) {
+          withdrawn += Math.abs(delta);
+        }
+        removeIds.add(tx.id);
+      }
+      totalsByWallet.set(walletId, { received, withdrawn });
+    }
+
+    if (removeIds.size === 0) return 0;
+
+    if (adjustTotals && totalsByWallet.size > 0) {
+      const storageKey = isDealerWallet ? STORAGE_KEYS.DEALER_WALLETS : STORAGE_KEYS.STORE_WALLETS;
+      const wallets: any[] = isDealerWallet ? this.getDealerWallets() : this.getStoreWallets();
+      let touched = false;
+      for (const [walletId, totals] of totalsByWallet) {
+        const wallet = wallets.find(w => w.id === walletId);
+        if (!wallet) continue;
+        wallet.totalReceived = Math.max(0, Math.round(((wallet.totalReceived || 0) - totals.received) * 100) / 100);
+        wallet.totalWithdrawn = Math.max(0, Math.round(((wallet.totalWithdrawn || 0) - totals.withdrawn) * 100) / 100);
+        touched = true;
+      }
+      if (touched) this.setItem(storageKey, wallets);
+    }
+
+    this.setItem(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, allTx.filter(tx => !removeIds.has(tx.id)));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(isDealerWallet ? 'dealer_wallets_updated' : 'store_wallets_updated'));
+    }
+    return removeIds.size;
+  }
+
   public purgeDerivedWalletLedgerForTicket(ticket: { id?: string; ticketNumber?: string }): number {
     const derivedWalletIds = ['w_cashback', 'w_referrals'];
     const tktNum = ticket.ticketNumber;
@@ -12071,10 +12169,7 @@ class LocalDatabase {
     const allTx = this.getItem<StoreWalletTransaction[]>(STORAGE_KEYS.STORE_WALLET_TRANSACTIONS, initialStoreWalletTransactions);
     const remaining = allTx.filter(tx => {
       if (!derivedWalletIds.includes(tx.walletId)) return true;
-      const matches =
-        (!!tktNum && (tx.referenceNumber === tktNum || tx.sourceTicketNumber === tktNum || !!tx.description?.includes(`#${tktNum}`))) ||
-        (!!tktId && tx.sourceTicketId === tktId);
-      return !matches;
+      return !this.walletTxBelongsToTicket(tx, ticket);
     });
 
     const removed = allTx.length - remaining.length;
@@ -14212,7 +14307,7 @@ class LocalDatabase {
       this.recordOperatingExpenseToSystemWallet(
         ticketExpenses,
         ticket.ticketNumber,
-        `مصاريف تشغيل وسيرفرات لتذكرة مكتملة #${ticket.ticketNumber}`,
+        `مصاري�� تشغيل وسيرفرات لتذكرة مكتملة #${ticket.ticketNumber}`,
         {
           customerName: ticket.customerName,
           gameName: ticket.items?.[0]?.gameName
@@ -16537,7 +16632,7 @@ class LocalDatabase {
           expiryDate: sub.endDate,
           type: 'expiring_3d',
           title: `تنبيه عاجل: اشتراك #${sub.subscriptionNumber} ينتهي خلال ${diffDays} أيام`,
-          message: `تنبيه مهم للعميل ${cName}: باقة (${sub.planName}) ستتوقف بعد ${diffDays} أيام.`,
+          message: `تنبيه مهم للعميل ${cName}: باقة (${sub.planName}) ستتوقف بعد ${diffDays} أ��ام.`,
           sentVia: 'whatsapp',
           isSent: false,
           createdAt: new Date().toISOString()
