@@ -5400,7 +5400,7 @@ class LocalDatabase {
         'edit',
         'debt',
         debt.id,
-        `سداد/تحصيل قسط دين بقيمة ${actualPayAmount} ${debt.currency || 'EGP'} من/إلى ${debt.partyName} [المتبقي: ${debt.remainingAmount}]`
+        `سداد/تحصيل قسط دي�� بقيمة ${actualPayAmount} ${debt.currency || 'EGP'} من/إلى ${debt.partyName} [المتبقي: ${debt.remainingAmount}]`
       );
     } catch (e) {}
 
@@ -6319,7 +6319,7 @@ class LocalDatabase {
     if (existing && existing.isPaid) {
       return {
         success: false,
-        message: `⚠️ تم صرف راتب هذا الموظف عن شهر ${slip.month} بالفعل بتاريخ ${existing.paidAt ? new Date(existing.paidAt).toLocaleDateString('ar-EG') : ''} بمبلغ ${existing.totalSalary} ج.م بواسطة ${existing.paidBy || 'المسؤول المالي'}.`,
+        message: `⚠️ تم صرف ر��تب هذا الموظف عن شهر ${slip.month} بالفعل بتاريخ ${existing.paidAt ? new Date(existing.paidAt).toLocaleDateString('ar-EG') : ''} بمبلغ ${existing.totalSalary} ج.م بواسطة ${existing.paidBy || 'المسؤول المالي'}.`,
         slip: existing
       };
     }
@@ -6691,7 +6691,7 @@ class LocalDatabase {
         'edit',
         'dealer_safe_transaction',
         id,
-        `تعديل حركة خزنة التجار: ${txs[idx].operationNumber || id}`,
+        `��عديل حركة خزنة التجار: ${txs[idx].operationNumber || id}`,
         oldTx,
         txs[idx]
       );
@@ -9365,7 +9365,7 @@ class LocalDatabase {
           department: 'subscriptions',
           departmentNameArabic: 'الاشتراكات الرقمية',
           type: isRefund ? 'refund' : s.renewalCount && s.renewalCount > 0 ? 'renewal' : 'subscription',
-          typeLabelArabic: isRefund ? 'استرداد اشتراك' : s.renewalCount && s.renewalCount > 0 ? 'تجديد اشتراك' : 'بيع اشتراك جديد',
+          typeLabelArabic: isRefund ? 'استرداد اشت��اك' : s.renewalCount && s.renewalCount > 0 ? 'تجديد اشتراك' : 'بيع اشتراك جديد',
           category: isRefund ? 'subscription_refund' : s.renewalCount && s.renewalCount > 0 ? 'subscription_renewal' : 'subscription_sale',
           amount: s.finalPrice,
           costAmount: s.costPrice,
@@ -10435,6 +10435,7 @@ class LocalDatabase {
       if (expWallet) {
         const allTickets = [...this.getTickets(), ...this.getDealerTickets()];
         const totalExpenses = allTickets.reduce((sum, t) => {
+          if (t.status === 'refunded') return sum;
           const exp = t.fixedCostAmount !== undefined
             ? Number(t.fixedCostAmount)
             : Number(t.pricingSnapshot?.fixedCostEGP || 0);
