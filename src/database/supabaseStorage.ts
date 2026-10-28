@@ -112,8 +112,15 @@ class SupabaseStorageAdapter {
       }
     } catch (_) {}
 
-    this.cache.set(key, initialVal);
-    this.cache.set(altKey, initialVal);
+    // CRITICAL: Only cache the fallback value if hydration is already complete.
+    // If hydration is still in progress, returning the defaultValue without caching
+    // prevents overwriting the real Supabase data that the hydration will populate.
+    // Components that call this before hydration will get the defaultValue, but
+    // the SUPABASE_HYDRATED event will trigger a re-read once data is available.
+    if (this.isHydrated) {
+      this.cache.set(key, initialVal);
+      this.cache.set(altKey, initialVal);
+    }
     return initialVal;
   }
 
@@ -122,6 +129,14 @@ class SupabaseStorageAdapter {
     this.cache.set(key, value);
     const altKey = key.startsWith('nzm_jkr_') ? key.replace(/^nzm_jkr_/, '') : `nzm_jkr_${key}`;
     this.cache.set(altKey, value);
+
+    // CRITICAL GUARD: Do NOT sync to Supabase until hydration is complete.
+    // Before hydration, writes are seed/initialization data that should NOT overwrite
+    // real cloud data. After hydration completes, the in-memory cache is populated
+    // with the authoritative Supabase data, and only then are writes persisted.
+    if (!this.isHydrated) {
+      return true;
+    }
 
     // Schedule debounced push to Supabase
     this.scheduleSyncToSupabase(key, value);
